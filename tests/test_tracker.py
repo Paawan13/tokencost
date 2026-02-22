@@ -1,6 +1,8 @@
 """Tests for the CostTracker class."""
 
 from unittest.mock import MagicMock, patch
+import io
+import sys
 
 import pytest
 
@@ -12,7 +14,7 @@ class TestCostTracker:
 
     def test_initial_state(self):
         """Tracker should start with zero cost and no history."""
-        tracker = CostTracker()
+        tracker = CostTracker(print_summary=False)
 
         assert tracker.total_cost == 0.0
         assert tracker.request_count == 0
@@ -22,14 +24,14 @@ class TestCostTracker:
 
     def test_budget_configuration(self):
         """Budget should be configurable via constructor."""
-        tracker = CostTracker(budget=10.0)
+        tracker = CostTracker(budget=10.0, print_summary=False)
 
         assert tracker.budget == 10.0
         assert tracker.budget_exceeded is False
 
     def test_reset_clears_all_data(self):
         """Reset should clear all tracked data."""
-        tracker = CostTracker(budget=1.0)
+        tracker = CostTracker(budget=1.0, print_summary=False)
         tracker._total_cost = 5.0
         tracker._request_count = 10
         tracker._history.append({"model": "test", "cost": 1.0})
@@ -44,7 +46,7 @@ class TestCostTracker:
 
     def test_history_returns_copy(self):
         """History property should return a copy to prevent mutation."""
-        tracker = CostTracker()
+        tracker = CostTracker(print_summary=False)
         tracker._history.append({"model": "test", "cost": 0.01})
 
         history = tracker.history
@@ -57,7 +59,7 @@ class TestCostTracker:
     def test_log_success_event_tracks_cost(self, mock_completion_cost):
         """Successful events should be tracked with cost."""
         mock_completion_cost.return_value = 0.05
-        tracker = CostTracker()
+        tracker = CostTracker(print_summary=False)
 
         mock_response = MagicMock()
         mock_response.usage.prompt_tokens = 100
@@ -84,7 +86,7 @@ class TestCostTracker:
         """Callback should fire when budget is exceeded."""
         mock_completion_cost.return_value = 2.0
         callback = MagicMock()
-        tracker = CostTracker(budget=1.0, on_budget_exceeded=callback)
+        tracker = CostTracker(budget=1.0, on_budget_exceeded=callback, print_summary=False)
 
         mock_response = MagicMock()
         mock_response.usage = None
@@ -103,7 +105,7 @@ class TestCostTracker:
     def test_budget_exceeded_raises_exception(self, mock_completion_cost):
         """Exception should be raised when budget exceeded and raise_on_budget=True."""
         mock_completion_cost.return_value = 2.0
-        tracker = CostTracker(budget=1.0, raise_on_budget=True)
+        tracker = CostTracker(budget=1.0, raise_on_budget=True, print_summary=False)
 
         mock_response = MagicMock()
         mock_response.usage = None
@@ -124,7 +126,7 @@ class TestCostTracker:
         """Callback should fire only once even with multiple exceeding requests."""
         mock_completion_cost.return_value = 2.0
         callback = MagicMock()
-        tracker = CostTracker(budget=1.0, on_budget_exceeded=callback)
+        tracker = CostTracker(budget=1.0, on_budget_exceeded=callback, print_summary=False)
 
         mock_response = MagicMock()
         mock_response.usage = None
@@ -147,7 +149,7 @@ class TestCostTracker:
 
     def test_log_failure_event_does_not_track_cost(self):
         """Failed events should not incur cost."""
-        tracker = CostTracker()
+        tracker = CostTracker(print_summary=False)
 
         tracker.log_failure_event(
             kwargs={"model": "gpt-4"},
@@ -164,7 +166,7 @@ class TestCostTracker:
     def test_cost_calculation_error_defaults_to_zero(self, mock_completion_cost):
         """If cost calculation fails, default to zero cost."""
         mock_completion_cost.side_effect = Exception("Unknown model")
-        tracker = CostTracker()
+        tracker = CostTracker(print_summary=False)
 
         mock_response = MagicMock()
         mock_response.usage = None
@@ -178,6 +180,37 @@ class TestCostTracker:
 
         assert tracker.total_cost == 0.0
         assert tracker.request_count == 1
+
+
+    @patch("llm_cost.tracker.completion_cost")
+    def test_print_exit_summary(self, mock_completion_cost):
+        """Exit summary should print formatted cost report."""
+        mock_completion_cost.return_value = 0.05
+        tracker = CostTracker(budget=1.0, print_summary=False)
+
+        mock_response = MagicMock()
+        mock_response.usage.prompt_tokens = 100
+        mock_response.usage.completion_tokens = 50
+
+        tracker.log_success_event(
+            kwargs={"model": "gpt-4"},
+            response_obj=mock_response,
+            start_time=None,
+            end_time=None,
+        )
+
+        # Capture stdout
+        captured_output = io.StringIO()
+        sys.stdout = captured_output
+        tracker._print_exit_summary()
+        sys.stdout = sys.__stdout__
+
+        output = captured_output.getvalue()
+        assert "LLM COST SUMMARY" in output
+        assert "Total Cost:" in output
+        assert "Total Requests: 1" in output
+        assert "gpt-4" in output
+        assert "0.05" in output
 
 
 class TestBudgetExceededError:

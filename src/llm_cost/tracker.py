@@ -1,5 +1,6 @@
 """Cost tracker implementation using litellm's CustomLogger."""
 
+import atexit
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -25,6 +26,7 @@ class CostTracker(CustomLogger):
         budget: float | None = None,
         on_budget_exceeded: Callable[["CostTracker"], None] | None = None,
         raise_on_budget: bool = False,
+        print_summary: bool = True,
     ) -> None:
         """Initialize the cost tracker.
 
@@ -33,16 +35,21 @@ class CostTracker(CustomLogger):
             on_budget_exceeded: Callback function called when budget is exceeded.
                 Receives the tracker instance as argument.
             raise_on_budget: If True, raises BudgetExceededError when budget exceeded.
+            print_summary: If True, prints cost summary when program exits.
         """
         super().__init__()
         self._budget = budget
         self._on_budget_exceeded = on_budget_exceeded
         self._raise_on_budget = raise_on_budget
+        self._print_summary = print_summary
         self._total_cost: float = 0.0
         self._request_count: int = 0
         self._history: list[dict] = []
         self._budget_exceeded: bool = False
         self._callback_fired: bool = False
+
+        if self._print_summary:
+            atexit.register(self._print_exit_summary)
 
     @property
     def total_cost(self) -> float:
@@ -130,3 +137,30 @@ class CostTracker(CustomLogger):
 
                 if self._raise_on_budget:
                     raise BudgetExceededError(self._budget, self._total_cost)
+
+    def _print_exit_summary(self) -> None:
+        """Print cost summary on program exit."""
+        if self._request_count == 0:
+            return
+
+        print("\n" + "=" * 50)
+        print("LLM COST SUMMARY")
+        print("=" * 50)
+        print(f"Total Cost:     ${self._total_cost:.6f}")
+        print(f"Total Requests: {self._request_count}")
+
+        if self._budget is not None:
+            remaining = self._budget - self._total_cost
+            status = "EXCEEDED" if self._budget_exceeded else "OK"
+            print(f"Budget:         ${self._budget:.4f} ({status})")
+            if not self._budget_exceeded:
+                print(f"Remaining:      ${remaining:.6f}")
+
+        if self._history:
+            print("-" * 50)
+            print("Requests:")
+            for i, entry in enumerate(self._history, 1):
+                tokens = f"{entry['prompt_tokens']}+{entry['completion_tokens']}"
+                print(f"  {i}. {entry['model']}: {tokens} tokens = ${entry['cost']:.6f}")
+
+        print("=" * 50)
