@@ -1,6 +1,7 @@
 """Cost tracker implementation using litellm's CustomLogger."""
 
 import atexit
+import threading
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -47,6 +48,7 @@ class CostTracker(CustomLogger):
         self._history: list[dict] = []
         self._budget_exceeded: bool = False
         self._callback_fired: bool = False
+        self._lock = threading.Lock()
 
         if self._print_summary:
             atexit.register(self._print_exit_summary)
@@ -54,17 +56,20 @@ class CostTracker(CustomLogger):
     @property
     def total_cost(self) -> float:
         """Running total cost in USD."""
-        return self._total_cost
+        with self._lock:
+            return self._total_cost
 
     @property
     def request_count(self) -> int:
         """Number of successful requests tracked."""
-        return self._request_count
+        with self._lock:
+            return self._request_count
 
     @property
     def history(self) -> list[dict]:
         """List of all logged request entries."""
-        return self._history.copy()
+        with self._lock:
+            return self._history.copy()
 
     @property
     def budget(self) -> float | None:
@@ -74,15 +79,47 @@ class CostTracker(CustomLogger):
     @property
     def budget_exceeded(self) -> bool:
         """Whether the budget has been exceeded."""
-        return self._budget_exceeded
+        with self._lock:
+            return self._budget_exceeded
 
     def reset(self) -> None:
         """Clear all tracked data and reset budget exceeded state."""
-        self._total_cost = 0.0
-        self._request_count = 0
-        self._history.clear()
-        self._budget_exceeded = False
-        self._callback_fired = False
+        with self._lock:
+            self._total_cost = 0.0
+            self._request_count = 0
+            self._history.clear()
+            self._budget_exceeded = False
+            self._callback_fired = False
+
+    def _record_cost(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cost: float,
+    ) -> None:
+        """Record a cost entry (thread-safe).
+
+        Args:
+            model: The model name.
+            prompt_tokens: Number of prompt tokens.
+            completion_tokens: Number of completion tokens.
+            cost: Cost in USD.
+        """
+        entry = {
+            "model": model,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cost": cost,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        with self._lock:
+            self._history.append(entry)
+            self._total_cost += cost
+            self._request_count += 1
+
+        self._check_budget()
 
     def log_success_event(self, kwargs, response_obj, start_time, end_time) -> None:
         """Log a successful LLM completion event.
@@ -100,19 +137,20 @@ class CostTracker(CustomLogger):
         prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
         completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
 
-        entry = {
-            "model": model,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "cost": cost,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        self._record_cost(model, prompt_tokens, completion_tokens, cost)
 
-        self._history.append(entry)
-        self._total_cost += cost
-        self._request_count += 1
+    def log_stream_event(self, kwargs, response_obj, start_time, end_time) -> None:
+        """Log a streaming chunk event.
 
-        self._check_budget()
+        This method is called by litellm for each chunk during streaming.
+        Individual chunks don't have complete usage info, so we don't track
+        cost here. The final accumulated response is tracked via
+        log_success_event which is called after streaming completes.
+
+        Note: litellm accumulates streaming responses and calls log_success_event
+        with the complete response at the end of the stream.
+        """
+        pass
 
     def log_failure_event(self, kwargs, response_obj, start_time, end_time) -> None:
         """Log a failed LLM completion event.
@@ -122,44 +160,60 @@ class CostTracker(CustomLogger):
         pass
 
     def _check_budget(self) -> None:
-        """Check if budget is exceeded and trigger alerts if so."""
+        """Check if budget is exceeded and trigger alerts if so (thread-safe)."""
         if self._budget is None:
             return
 
-        if self._total_cost > self._budget:
-            self._budget_exceeded = True
+        should_fire_callback = False
+        should_raise = False
+        total_cost = 0.0
 
-            if not self._callback_fired:
-                self._callback_fired = True
+        with self._lock:
+            if self._total_cost > self._budget:
+                self._budget_exceeded = True
 
-                if self._on_budget_exceeded is not None:
-                    self._on_budget_exceeded(self)
+                if not self._callback_fired:
+                    self._callback_fired = True
+                    should_fire_callback = True
+                    should_raise = self._raise_on_budget
+                    total_cost = self._total_cost
 
-                if self._raise_on_budget:
-                    raise BudgetExceededError(self._budget, self._total_cost)
+        # Execute callbacks outside the lock to prevent deadlocks
+        if should_fire_callback:
+            if self._on_budget_exceeded is not None:
+                self._on_budget_exceeded(self)
+
+            if should_raise:
+                raise BudgetExceededError(self._budget, total_cost)
 
     def _print_exit_summary(self) -> None:
-        """Print cost summary on program exit."""
-        if self._request_count == 0:
-            return
+        """Print cost summary on program exit (thread-safe)."""
+        # Snapshot the data under lock to ensure consistency
+        with self._lock:
+            if self._request_count == 0:
+                return
+            total_cost = self._total_cost
+            request_count = self._request_count
+            budget_exceeded = self._budget_exceeded
+            history = self._history.copy()
 
         print("\n" + "=" * 50)
         print("LLM COST SUMMARY")
         print("=" * 50)
-        print(f"Total Cost:     ${self._total_cost:.6f}")
-        print(f"Total Requests: {self._request_count}")
+        print(f"Total Cost:     ${total_cost:.6f}")
+        print(f"Total Requests: {request_count}")
 
         if self._budget is not None:
-            remaining = self._budget - self._total_cost
-            status = "EXCEEDED" if self._budget_exceeded else "OK"
+            remaining = self._budget - total_cost
+            status = "EXCEEDED" if budget_exceeded else "OK"
             print(f"Budget:         ${self._budget:.4f} ({status})")
-            if not self._budget_exceeded:
+            if not budget_exceeded:
                 print(f"Remaining:      ${remaining:.6f}")
 
-        if self._history:
+        if history:
             print("-" * 50)
             print("Requests:")
-            for i, entry in enumerate(self._history, 1):
+            for i, entry in enumerate(history, 1):
                 tokens = f"{entry['prompt_tokens']}+{entry['completion_tokens']}"
                 print(f"  {i}. {entry['model']}: {tokens} tokens = ${entry['cost']:.6f}")
 
