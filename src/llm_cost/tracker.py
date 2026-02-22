@@ -82,6 +82,16 @@ class CostTracker(CustomLogger):
         with self._lock:
             return self._budget_exceeded
 
+    @property
+    def cost_by_model(self) -> dict[str, float]:
+        """Cost aggregated by model name."""
+        with self._lock:
+            costs: dict[str, float] = {}
+            for entry in self._history:
+                model = entry["model"]
+                costs[model] = costs.get(model, 0.0) + entry["cost"]
+            return costs
+
     def reset(self) -> None:
         """Clear all tracked data and reset budget exceeded state."""
         with self._lock:
@@ -139,6 +149,17 @@ class CostTracker(CustomLogger):
 
         self._record_cost(model, prompt_tokens, completion_tokens, cost)
 
+    async def async_log_success_event(
+        self, kwargs, response_obj, start_time, end_time
+    ) -> None:
+        """Log a successful LLM completion event (async version).
+
+        This method is called by litellm after a successful async completion.
+        Uses the same logic as log_success_event since the actual recording
+        is CPU-bound and thread-safe.
+        """
+        self.log_success_event(kwargs, response_obj, start_time, end_time)
+
     def log_stream_event(self, kwargs, response_obj, start_time, end_time) -> None:
         """Log a streaming chunk event.
 
@@ -152,8 +173,26 @@ class CostTracker(CustomLogger):
         """
         pass
 
+    async def async_log_stream_event(
+        self, kwargs, response_obj, start_time, end_time
+    ) -> None:
+        """Log a streaming chunk event (async version).
+
+        See log_stream_event for details.
+        """
+        pass
+
     def log_failure_event(self, kwargs, response_obj, start_time, end_time) -> None:
         """Log a failed LLM completion event.
+
+        Failed requests do not incur cost.
+        """
+        pass
+
+    async def async_log_failure_event(
+        self, kwargs, response_obj, start_time, end_time
+    ) -> None:
+        """Log a failed LLM completion event (async version).
 
         Failed requests do not incur cost.
         """
