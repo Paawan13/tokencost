@@ -1,6 +1,5 @@
 """Cost tracker implementation using litellm's CustomLogger."""
 
-import asyncio
 import atexit
 import threading
 from datetime import datetime, timezone
@@ -131,11 +130,8 @@ class CostTracker(CustomLogger):
 
         self._check_budget()
 
-    def log_success_event(self, kwargs, response_obj, start_time, end_time) -> None:
-        """Log a successful LLM completion event.
-
-        This method is called by litellm after a successful completion.
-        """
+    def _extract_and_record(self, kwargs, response_obj) -> None:
+        """Extract cost info from response and record it."""
         try:
             cost = completion_cost(completion_response=response_obj)
         except Exception:
@@ -149,17 +145,23 @@ class CostTracker(CustomLogger):
 
         self._record_cost(model, prompt_tokens, completion_tokens, cost)
 
+    def log_success_event(self, kwargs, response_obj, start_time, end_time) -> None:
+        """Log a successful LLM completion event.
+
+        This method is called by litellm after a successful sync completion.
+        """
+        self._extract_and_record(kwargs, response_obj)
+
     async def async_log_success_event(
         self, kwargs, response_obj, start_time, end_time
     ) -> None:
         """Log a successful LLM completion event (async version).
 
         This method is called by litellm after a successful async completion.
-        Runs in a thread pool to avoid blocking the event loop.
         """
-        await asyncio.to_thread(
-            self.log_success_event, kwargs, response_obj, start_time, end_time
-        )
+        # Debug: uncomment to trace callback invocations
+        # print(f"[DEBUG] async_log_success_event called for {kwargs.get('model')}")
+        self._extract_and_record(kwargs, response_obj)
 
     def log_stream_event(self, kwargs, response_obj, start_time, end_time) -> None:
         """Log a streaming chunk event.
