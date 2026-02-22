@@ -164,7 +164,7 @@ Each request is logged with:
 ## Development
 
 ```bash
-git clone https://github.com/Paawan13/tokencost.git
+git clone https://github.com/Paawan13/llm-tokencost.git
 cd tokencost
 pip install -e ".[dev]"
 pytest
