@@ -1,5 +1,6 @@
 """Cost tracker implementation using litellm's CustomLogger."""
 
+import asyncio
 import atexit
 import threading
 from datetime import datetime, timezone
@@ -46,6 +47,7 @@ class CostTracker(CustomLogger):
         self._total_cost: float = 0.0
         self._request_count: int = 0
         self._history: list[dict] = []
+        self._cost_by_model: dict[str, float] = {}
         self._budget_exceeded: bool = False
         self._callback_fired: bool = False
         self._lock = threading.Lock()
@@ -82,12 +84,19 @@ class CostTracker(CustomLogger):
         with self._lock:
             return self._budget_exceeded
 
+    @property
+    def cost_by_model(self) -> dict[str, float]:
+        """Cost aggregated by model name."""
+        with self._lock:
+            return self._cost_by_model.copy()
+
     def reset(self) -> None:
         """Clear all tracked data and reset budget exceeded state."""
         with self._lock:
             self._total_cost = 0.0
             self._request_count = 0
             self._history.clear()
+            self._cost_by_model.clear()
             self._budget_exceeded = False
             self._callback_fired = False
 
@@ -118,6 +127,7 @@ class CostTracker(CustomLogger):
             self._history.append(entry)
             self._total_cost += cost
             self._request_count += 1
+            self._cost_by_model[model] = self._cost_by_model.get(model, 0.0) + cost
 
         self._check_budget()
 
@@ -139,6 +149,18 @@ class CostTracker(CustomLogger):
 
         self._record_cost(model, prompt_tokens, completion_tokens, cost)
 
+    async def async_log_success_event(
+        self, kwargs, response_obj, start_time, end_time
+    ) -> None:
+        """Log a successful LLM completion event (async version).
+
+        This method is called by litellm after a successful async completion.
+        Runs in a thread pool to avoid blocking the event loop.
+        """
+        await asyncio.to_thread(
+            self.log_success_event, kwargs, response_obj, start_time, end_time
+        )
+
     def log_stream_event(self, kwargs, response_obj, start_time, end_time) -> None:
         """Log a streaming chunk event.
 
@@ -152,8 +174,26 @@ class CostTracker(CustomLogger):
         """
         pass
 
+    async def async_log_stream_event(
+        self, kwargs, response_obj, start_time, end_time
+    ) -> None:
+        """Log a streaming chunk event (async version).
+
+        See log_stream_event for details.
+        """
+        pass
+
     def log_failure_event(self, kwargs, response_obj, start_time, end_time) -> None:
         """Log a failed LLM completion event.
+
+        Failed requests do not incur cost.
+        """
+        pass
+
+    async def async_log_failure_event(
+        self, kwargs, response_obj, start_time, end_time
+    ) -> None:
+        """Log a failed LLM completion event (async version).
 
         Failed requests do not incur cost.
         """

@@ -261,7 +261,7 @@ class TestThreadSafety:
         expected_cost = expected_count * 0.01
 
         assert tracker.request_count == expected_count
-        assert abs(tracker.total_cost - expected_cost) < 0.0001
+        assert tracker.total_cost == pytest.approx(expected_cost)
         assert len(tracker.history) == expected_count
 
     @patch("llm_cost.tracker.completion_cost")
@@ -306,6 +306,138 @@ class TestThreadSafety:
             t.join()
 
         assert len(errors) == 0, f"Errors occurred: {errors}"
+
+
+class TestCostByModel:
+    """Tests for per-model cost aggregation."""
+
+    @patch("llm_cost.tracker.completion_cost")
+    def test_cost_by_model_empty(self, mock_completion_cost):
+        """cost_by_model should return empty dict when no requests."""
+        tracker = CostTracker(print_summary=False)
+
+        assert tracker.cost_by_model == {}
+
+    @patch("llm_cost.tracker.completion_cost")
+    def test_cost_by_model_single_model(self, mock_completion_cost):
+        """cost_by_model should aggregate costs for a single model."""
+        mock_completion_cost.return_value = 0.05
+        tracker = CostTracker(print_summary=False)
+
+        mock_response = MagicMock()
+        mock_response.usage = None
+
+        for _ in range(3):
+            tracker.log_success_event(
+                kwargs={"model": "gpt-4"},
+                response_obj=mock_response,
+                start_time=None,
+                end_time=None,
+            )
+
+        costs = tracker.cost_by_model
+        assert len(costs) == 1
+        assert costs["gpt-4"] == pytest.approx(0.15)
+
+    @patch("llm_cost.tracker.completion_cost")
+    def test_cost_by_model_multiple_models(self, mock_completion_cost):
+        """cost_by_model should aggregate costs per model."""
+        tracker = CostTracker(print_summary=False)
+
+        mock_response = MagicMock()
+        mock_response.usage = None
+
+        # gpt-4: 2 requests at $0.10 each
+        mock_completion_cost.return_value = 0.10
+        for _ in range(2):
+            tracker.log_success_event(
+                kwargs={"model": "gpt-4"},
+                response_obj=mock_response,
+                start_time=None,
+                end_time=None,
+            )
+
+        # gpt-3.5-turbo: 3 requests at $0.01 each
+        mock_completion_cost.return_value = 0.01
+        for _ in range(3):
+            tracker.log_success_event(
+                kwargs={"model": "gpt-3.5-turbo"},
+                response_obj=mock_response,
+                start_time=None,
+                end_time=None,
+            )
+
+        # claude-3: 1 request at $0.05
+        mock_completion_cost.return_value = 0.05
+        tracker.log_success_event(
+            kwargs={"model": "claude-3"},
+            response_obj=mock_response,
+            start_time=None,
+            end_time=None,
+        )
+
+        costs = tracker.cost_by_model
+        assert len(costs) == 3
+        assert costs["gpt-4"] == pytest.approx(0.20)
+        assert costs["gpt-3.5-turbo"] == pytest.approx(0.03)
+        assert costs["claude-3"] == pytest.approx(0.05)
+
+
+class TestAsyncSupport:
+    """Tests for async litellm support."""
+
+    @patch("llm_cost.tracker.completion_cost")
+    @pytest.mark.asyncio
+    async def test_async_log_success_event(self, mock_completion_cost):
+        """async_log_success_event should track cost like sync version."""
+        mock_completion_cost.return_value = 0.05
+        tracker = CostTracker(print_summary=False)
+
+        mock_response = MagicMock()
+        mock_response.usage.prompt_tokens = 100
+        mock_response.usage.completion_tokens = 50
+
+        await tracker.async_log_success_event(
+            kwargs={"model": "gpt-4"},
+            response_obj=mock_response,
+            start_time=None,
+            end_time=None,
+        )
+
+        assert tracker.total_cost == 0.05
+        assert tracker.request_count == 1
+        assert len(tracker.history) == 1
+        assert tracker.history[0]["model"] == "gpt-4"
+
+    @pytest.mark.asyncio
+    async def test_async_log_stream_event_does_not_track_cost(self):
+        """async_log_stream_event should not track cost."""
+        tracker = CostTracker(print_summary=False)
+
+        await tracker.async_log_stream_event(
+            kwargs={"model": "gpt-4"},
+            response_obj=None,
+            start_time=None,
+            end_time=None,
+        )
+
+        assert tracker.total_cost == 0.0
+        assert tracker.request_count == 0
+
+    @pytest.mark.asyncio
+    async def test_async_log_failure_event_does_not_track_cost(self):
+        """async_log_failure_event should not track cost."""
+        tracker = CostTracker(print_summary=False)
+
+        await tracker.async_log_failure_event(
+            kwargs={"model": "gpt-4"},
+            response_obj=None,
+            start_time=None,
+            end_time=None,
+        )
+
+        assert tracker.total_cost == 0.0
+        assert tracker.request_count == 0
 
 
 class TestStreamingSupport:
