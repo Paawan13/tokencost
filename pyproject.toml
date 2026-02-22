@@ -36,9 +36,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Paawan13/litellm-cost-tracker"
-Repository = "https://github.com/Paawan13/litellm-cost-tracker"
-"Bug Tracker" = "https://github.com/Paawan13/litellm-cost-tracker/issues"
+Homepage = "https://github.com/Paawan13/tokencost"
+Repository = "https://github.com/Paawan13/tokencost"
+"Bug Tracker" = "https://github.com/Paawan13/tokencost/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
