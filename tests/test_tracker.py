@@ -1,8 +1,10 @@
 """Tests for the CostTracker class."""
 
-from unittest.mock import MagicMock, patch
+import concurrent.futures
 import io
 import sys
+import threading
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -224,3 +226,133 @@ class TestBudgetExceededError:
         assert error.total_cost == 7.5
         assert "5.00" in str(error)
         assert "7.5" in str(error)
+
+
+class TestThreadSafety:
+    """Tests for thread-safe operations."""
+
+    @patch("llm_cost.tracker.completion_cost")
+    def test_concurrent_log_success_events(self, mock_completion_cost):
+        """Multiple threads logging events should not corrupt data."""
+        mock_completion_cost.return_value = 0.01
+        tracker = CostTracker(print_summary=False)
+
+        mock_response = MagicMock()
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 5
+
+        num_threads = 10
+        requests_per_thread = 100
+
+        def log_requests():
+            for _ in range(requests_per_thread):
+                tracker.log_success_event(
+                    kwargs={"model": "gpt-4"},
+                    response_obj=mock_response,
+                    start_time=None,
+                    end_time=None,
+                )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = [executor.submit(log_requests) for _ in range(num_threads)]
+            concurrent.futures.wait(futures)
+
+        expected_count = num_threads * requests_per_thread
+        expected_cost = expected_count * 0.01
+
+        assert tracker.request_count == expected_count
+        assert abs(tracker.total_cost - expected_cost) < 0.0001
+        assert len(tracker.history) == expected_count
+
+    @patch("llm_cost.tracker.completion_cost")
+    def test_concurrent_reset_and_log(self, mock_completion_cost):
+        """Reset during logging should not cause errors."""
+        mock_completion_cost.return_value = 0.01
+        tracker = CostTracker(print_summary=False)
+
+        mock_response = MagicMock()
+        mock_response.usage = None
+
+        errors = []
+
+        def log_requests():
+            try:
+                for _ in range(50):
+                    tracker.log_success_event(
+                        kwargs={"model": "gpt-4"},
+                        response_obj=mock_response,
+                        start_time=None,
+                        end_time=None,
+                    )
+            except Exception as e:
+                errors.append(e)
+
+        def reset_periodically():
+            try:
+                for _ in range(10):
+                    tracker.reset()
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=log_requests),
+            threading.Thread(target=log_requests),
+            threading.Thread(target=reset_periodically),
+        ]
+
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0, f"Errors occurred: {errors}"
+
+
+class TestStreamingSupport:
+    """Tests for streaming response support."""
+
+    def test_log_stream_event_does_not_track_cost(self):
+        """Stream events should not track cost (handled by final log_success_event)."""
+        tracker = CostTracker(print_summary=False)
+
+        tracker.log_stream_event(
+            kwargs={"model": "gpt-4"},
+            response_obj=None,
+            start_time=None,
+            end_time=None,
+        )
+
+        assert tracker.total_cost == 0.0
+        assert tracker.request_count == 0
+        assert len(tracker.history) == 0
+
+    @patch("llm_cost.tracker.completion_cost")
+    def test_streaming_completes_with_success_event(self, mock_completion_cost):
+        """Streaming should still track cost via final log_success_event."""
+        mock_completion_cost.return_value = 0.05
+        tracker = CostTracker(print_summary=False)
+
+        mock_response = MagicMock()
+        mock_response.usage.prompt_tokens = 100
+        mock_response.usage.completion_tokens = 50
+
+        # Simulate stream events (no cost tracking)
+        for _ in range(5):
+            tracker.log_stream_event(
+                kwargs={"model": "gpt-4"},
+                response_obj=None,
+                start_time=None,
+                end_time=None,
+            )
+
+        # Final success event tracks the complete cost
+        tracker.log_success_event(
+            kwargs={"model": "gpt-4"},
+            response_obj=mock_response,
+            start_time=None,
+            end_time=None,
+        )
+
+        assert tracker.total_cost == 0.05
+        assert tracker.request_count == 1
+        assert len(tracker.history) == 1
