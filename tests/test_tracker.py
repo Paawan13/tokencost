@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llm_cost import BudgetExceededError, CostTracker
+from tokencost import BudgetExceededError, CostTracker
 
 
 class TestCostTracker:
@@ -57,7 +57,7 @@ class TestCostTracker:
         assert len(tracker.history) == 1
         assert tracker.history[0]["model"] == "test"
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_log_success_event_tracks_cost(self, mock_completion_cost):
         """Successful events should be tracked with cost."""
         mock_completion_cost.return_value = 0.05
@@ -83,7 +83,7 @@ class TestCostTracker:
         assert tracker.history[0]["cost"] == 0.05
         assert "timestamp" in tracker.history[0]
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_budget_exceeded_callback(self, mock_completion_cost):
         """Callback should fire when budget is exceeded."""
         mock_completion_cost.return_value = 2.0
@@ -103,7 +103,7 @@ class TestCostTracker:
         assert tracker.budget_exceeded is True
         callback.assert_called_once_with(tracker)
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_budget_exceeded_raises_exception(self, mock_completion_cost):
         """Exception should be raised when budget exceeded and raise_on_budget=True."""
         mock_completion_cost.return_value = 2.0
@@ -123,7 +123,7 @@ class TestCostTracker:
         assert exc_info.value.budget == 1.0
         assert exc_info.value.total_cost == 2.0
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_callback_fires_only_once(self, mock_completion_cost):
         """Callback should fire only once even with multiple exceeding requests."""
         mock_completion_cost.return_value = 2.0
@@ -164,7 +164,7 @@ class TestCostTracker:
         assert tracker.request_count == 0
         assert len(tracker.history) == 0
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_cost_calculation_error_defaults_to_zero(self, mock_completion_cost):
         """If cost calculation fails, default to zero cost."""
         mock_completion_cost.side_effect = Exception("Unknown model")
@@ -184,7 +184,7 @@ class TestCostTracker:
         assert tracker.request_count == 1
 
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_print_exit_summary(self, mock_completion_cost):
         """Exit summary should print formatted cost report."""
         mock_completion_cost.return_value = 0.05
@@ -231,7 +231,7 @@ class TestBudgetExceededError:
 class TestThreadSafety:
     """Tests for thread-safe operations."""
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_concurrent_log_success_events(self, mock_completion_cost):
         """Multiple threads logging events should not corrupt data."""
         mock_completion_cost.return_value = 0.01
@@ -264,7 +264,7 @@ class TestThreadSafety:
         assert tracker.total_cost == pytest.approx(expected_cost)
         assert len(tracker.history) == expected_count
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_concurrent_reset_and_log(self, mock_completion_cost):
         """Reset during logging should not cause errors."""
         mock_completion_cost.return_value = 0.01
@@ -311,14 +311,14 @@ class TestThreadSafety:
 class TestCostByModel:
     """Tests for per-model cost aggregation."""
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_cost_by_model_empty(self, mock_completion_cost):
         """cost_by_model should return empty dict when no requests."""
         tracker = CostTracker(print_summary=False)
 
         assert tracker.cost_by_model == {}
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_cost_by_model_single_model(self, mock_completion_cost):
         """cost_by_model should aggregate costs for a single model."""
         mock_completion_cost.return_value = 0.05
@@ -339,7 +339,7 @@ class TestCostByModel:
         assert len(costs) == 1
         assert costs["gpt-4"] == pytest.approx(0.15)
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_cost_by_model_multiple_models(self, mock_completion_cost):
         """cost_by_model should aggregate costs per model."""
         tracker = CostTracker(print_summary=False)
@@ -386,7 +386,7 @@ class TestCostByModel:
 class TestAsyncSupport:
     """Tests for async litellm support."""
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     @pytest.mark.asyncio
     async def test_async_log_success_event(self, mock_completion_cost):
         """async_log_success_event should track cost like sync version."""
@@ -458,7 +458,7 @@ class TestStreamingSupport:
         assert tracker.request_count == 0
         assert len(tracker.history) == 0
 
-    @patch("llm_cost.tracker.completion_cost")
+    @patch("tokencost.tracker.completion_cost")
     def test_streaming_completes_with_success_event(self, mock_completion_cost):
         """Streaming should still track cost via final log_success_event."""
         mock_completion_cost.return_value = 0.05

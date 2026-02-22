@@ -5,7 +5,7 @@ Test new features: async support and cost_by_model aggregation.
 import asyncio
 import time
 import litellm
-from llm_cost import CostTracker
+from tokencost import CostTracker
 
 
 def test_cost_by_model():

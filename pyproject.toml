@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "litellm-cost-tracker"
-version = "0.2.0"
+name = "tokencost"
+version = "0.3.0"
 description = "A lightweight Python library for tracking LLM API costs via litellm's callback system"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,7 +12,7 @@ license = "MIT"
 authors = [
     {name = "Paawan Purdhani", email = "paawanpurdhani@gmail.com"},
 ]
-keywords = ["llm", "cost", "tracking", "litellm", "budget", "openai", "anthropic"]
+keywords = ["llm", "cost", "tracking", "token", "budget", "openai", "anthropic", "litellm"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -45,7 +45,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["llm_cost*"]
+include = ["tokencost*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
