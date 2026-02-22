@@ -5,7 +5,7 @@ A lightweight Python library for tracking LLM API costs via litellm's callback s
 ## Installation
 
 ```bash
-pip install tokencost
+pip install llm-tokencost
 ```
 
 ## Quick Start
