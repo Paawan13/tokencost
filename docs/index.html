@@ -1,0 +1,1425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>llm-tokencost | Track Your LLM Spending</title>
+    <meta name="description" content="A lightweight Python library for tracking LLM API costs via litellm's callback system, with budget alerts and spending limits.">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a26;
+            --bg-card: #16161f;
+            --text-primary: #e8e8ed;
+            --text-secondary: #9090a0;
+            --text-muted: #606070;
+            --accent-cyan: #00f0ff;
+            --accent-cyan-dim: #00a0aa;
+            --accent-green: #00ff88;
+            --accent-green-dim: #00aa60;
+            --accent-pink: #ff00aa;
+            --accent-yellow: #ffee00;
+            --accent-orange: #ff8800;
+            --glow-cyan: 0 0 30px rgba(0, 240, 255, 0.3);
+            --glow-green: 0 0 30px rgba(0, 255, 136, 0.3);
+            --glow-pink: 0 0 30px rgba(255, 0, 170, 0.3);
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --gradient-mesh: radial-gradient(ellipse at 20% 20%, rgba(0, 240, 255, 0.08) 0%, transparent 50%),
+                             radial-gradient(ellipse at 80% 80%, rgba(255, 0, 170, 0.06) 0%, transparent 50%),
+                             radial-gradient(ellipse at 50% 50%, rgba(0, 255, 136, 0.04) 0%, transparent 60%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        /* Noise Overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+            opacity: 0.03;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        /* Grid Background */
+        .grid-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .nav-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .logo {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 1.3rem;
+            color: var(--accent-cyan);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-shadow: var(--glow-cyan);
+        }
+
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-green));
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 32px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--accent-cyan);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--accent-cyan);
+            transition: width 0.3s ease;
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        .nav-cta {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+            font-family: inherit;
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .btn-ghost:hover {
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-cyan-dim));
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            box-shadow: var(--glow-cyan);
+            transform: translateY(-2px);
+        }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            position: relative;
+            padding-top: 80px;
+            background: var(--gradient-mesh);
+        }
+
+        .hero-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
+            align-items: center;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            border-radius: 100px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--accent-cyan);
+            margin-bottom: 24px;
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        .hero-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .hero h1 {
+            font-size: 4rem;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 24px;
+            animation: fadeInUp 0.6s ease-out 0.1s backwards;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-green));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+            max-width: 480px;
+            animation: fadeInUp 0.6s ease-out 0.2s backwards;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 48px;
+            animation: fadeInUp 0.6s ease-out 0.3s backwards;
+        }
+
+        .hero-stats {
+            display: flex;
+            gap: 40px;
+            animation: fadeInUp 0.6s ease-out 0.4s backwards;
+        }
+
+        .stat {
+            text-align: left;
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Terminal Demo */
+        .hero-terminal {
+            position: relative;
+            animation: fadeInUp 0.8s ease-out 0.3s backwards;
+        }
+
+        .terminal {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow:
+                0 4px 6px rgba(0, 0, 0, 0.3),
+                0 20px 40px rgba(0, 0, 0, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 16px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .terminal-dot.red { background: #ff5f56; }
+        .terminal-dot.yellow { background: #ffbd2e; }
+        .terminal-dot.green { background: #27c93f; }
+
+        .terminal-title {
+            flex: 1;
+            text-align: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .terminal-body {
+            padding: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+            overflow-x: auto;
+        }
+
+        .terminal-line {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 4px;
+        }
+
+        .terminal-prompt {
+            color: var(--accent-green);
+            user-select: none;
+        }
+
+        .terminal-command {
+            color: var(--text-primary);
+        }
+
+        .terminal-output {
+            color: var(--text-secondary);
+            padding-left: 24px;
+        }
+
+        .terminal-comment {
+            color: var(--text-muted);
+        }
+
+        .terminal-keyword {
+            color: var(--accent-pink);
+        }
+
+        .terminal-string {
+            color: var(--accent-green);
+        }
+
+        .terminal-number {
+            color: var(--accent-orange);
+        }
+
+        .terminal-function {
+            color: var(--accent-cyan);
+        }
+
+        .terminal-glow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120%;
+            height: 120%;
+            background: radial-gradient(ellipse at center, rgba(0, 240, 255, 0.1) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Install Section */
+        .install-section {
+            padding: 40px 0;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-subtle);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .install-box {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+
+        .install-label {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .install-command {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 12px 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1rem;
+        }
+
+        .install-command code {
+            color: var(--accent-cyan);
+        }
+
+        .copy-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px;
+            transition: color 0.3s ease;
+        }
+
+        .copy-btn:hover {
+            color: var(--accent-cyan);
+        }
+
+        .copy-btn svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Features Section */
+        .features {
+            padding: 120px 0;
+            background: var(--gradient-mesh);
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 64px;
+        }
+
+        .section-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: 2.8rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .section-subtitle {
+            font-size: 1.15rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 32px;
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(0, 240, 255, 0.2);
+        }
+
+        .feature-card:hover::before {
+            opacity: 1;
+        }
+
+        .feature-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(0, 255, 136, 0.1));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        .feature-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .feature-desc {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        /* Code Examples Section */
+        .examples {
+            padding: 120px 0;
+            background: var(--bg-secondary);
+        }
+
+        .examples-tabs {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            padding: 12px 24px;
+            background: transparent;
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .tab-btn:hover {
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .tab-btn.active {
+            background: var(--accent-cyan);
+            border-color: var(--accent-cyan);
+            color: var(--bg-primary);
+        }
+
+        .code-example {
+            display: none;
+        }
+
+        .code-example.active {
+            display: block;
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .code-block {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .code-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .code-filename {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .code-body {
+            padding: 24px;
+            overflow-x: auto;
+        }
+
+        .code-body pre {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            line-height: 1.7;
+            margin: 0;
+        }
+
+        /* API Reference */
+        .api-reference {
+            padding: 120px 0;
+            background: var(--gradient-mesh);
+        }
+
+        .api-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+        }
+
+        .api-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 32px;
+        }
+
+        .api-card-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.3rem;
+            color: var(--accent-cyan);
+            margin-bottom: 8px;
+        }
+
+        .api-card-subtitle {
+            color: var(--text-muted);
+            margin-bottom: 24px;
+            font-size: 0.95rem;
+        }
+
+        .api-props {
+            list-style: none;
+        }
+
+        .api-prop {
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .api-prop:last-child {
+            border-bottom: none;
+        }
+
+        .api-prop-name {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-green);
+            font-size: 0.9rem;
+        }
+
+        .api-prop-type {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-pink);
+            font-size: 0.8rem;
+            margin-left: 8px;
+        }
+
+        .api-prop-desc {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 8px;
+        }
+
+        /* Summary Preview */
+        .summary-section {
+            padding: 120px 0;
+            background: var(--bg-secondary);
+        }
+
+        .summary-content {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr;
+            gap: 60px;
+            align-items: center;
+        }
+
+        .summary-text h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+        }
+
+        .summary-text h2 span {
+            color: var(--accent-green);
+        }
+
+        .summary-text p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-bottom: 24px;
+        }
+
+        .summary-features {
+            list-style: none;
+        }
+
+        .summary-features li {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            color: var(--text-secondary);
+        }
+
+        .summary-features li::before {
+            content: '✓';
+            color: var(--accent-green);
+            font-weight: 700;
+        }
+
+        .summary-terminal {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .summary-output {
+            padding: 24px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+        }
+
+        .summary-line {
+            color: var(--text-secondary);
+        }
+
+        .summary-line.header {
+            color: var(--accent-cyan);
+        }
+
+        .summary-line.divider {
+            color: var(--text-muted);
+        }
+
+        .summary-line.highlight {
+            color: var(--accent-green);
+        }
+
+        .summary-line.cost {
+            color: var(--accent-yellow);
+        }
+
+        /* Footer */
+        footer {
+            padding: 60px 0;
+            background: var(--bg-primary);
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 24px;
+        }
+
+        .footer-logo {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--accent-cyan);
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 32px;
+            list-style: none;
+        }
+
+        .footer-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: color 0.3s ease;
+        }
+
+        .footer-links a:hover {
+            color: var(--accent-cyan);
+        }
+
+        .footer-copy {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 1024px) {
+            .hero-content {
+                grid-template-columns: 1fr;
+                gap: 40px;
+            }
+
+            .hero h1 {
+                font-size: 3rem;
+            }
+
+            .features-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .api-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .summary-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+
+            .hero h1 {
+                font-size: 2.4rem;
+            }
+
+            .hero-stats {
+                flex-wrap: wrap;
+                gap: 24px;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .section-title {
+                font-size: 2rem;
+            }
+
+            .install-box {
+                flex-direction: column;
+            }
+
+            .footer-content {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .footer-links {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="grid-bg"></div>
+
+    <!-- Navigation -->
+    <nav>
+        <div class="nav-inner">
+            <a href="#" class="logo">
+                <span class="logo-icon">$</span>
+                llm-tokencost
+            </a>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#examples">Examples</a></li>
+                <li><a href="#api">API</a></li>
+            </ul>
+            <div class="nav-cta">
+                <a href="https://github.com/Paawan13/llm-tokencost" class="btn btn-ghost" target="_blank">GitHub</a>
+                <a href="https://pypi.org/project/llm-tokencost/" class="btn btn-primary" target="_blank">PyPI</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-text">
+                    <div class="hero-badge">
+                        <span>v0.3.0</span>
+                    </div>
+                    <h1>Track Your<br><span>LLM Spending</span></h1>
+                    <p class="hero-subtitle">
+                        A lightweight Python library for tracking LLM API costs with budget alerts, spending limits, and detailed per-model breakdowns.
+                    </p>
+                    <div class="hero-actions">
+                        <a href="#examples" class="btn btn-primary">Get Started</a>
+                        <a href="https://github.com/Paawan13/llm-tokencost" class="btn btn-ghost" target="_blank">
+                            View on GitHub
+                        </a>
+                    </div>
+                    <div class="hero-stats">
+                        <div class="stat">
+                            <div class="stat-value">1600+</div>
+                            <div class="stat-label">Models Supported</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value">Async</div>
+                            <div class="stat-label">Ready</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value">100%</div>
+                            <div class="stat-label">Thread-safe</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="hero-terminal">
+                    <div class="terminal-glow"></div>
+                    <div class="terminal">
+                        <div class="terminal-header">
+                            <span class="terminal-dot red"></span>
+                            <span class="terminal-dot yellow"></span>
+                            <span class="terminal-dot green"></span>
+                            <span class="terminal-title">example.py</span>
+                        </div>
+                        <div class="terminal-body">
+                            <div class="terminal-line">
+                                <span class="terminal-keyword">import</span> <span class="terminal-command">litellm</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-keyword">from</span> <span class="terminal-command">tokencost</span> <span class="terminal-keyword">import</span> <span class="terminal-function">CostTracker</span>
+                            </div>
+                            <br>
+                            <div class="terminal-line">
+                                <span class="terminal-comment"># Set up tracking with $5 budget</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-command">tracker = </span><span class="terminal-function">CostTracker</span><span class="terminal-command">(budget=</span><span class="terminal-number">5.00</span><span class="terminal-command">)</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-command">litellm.callbacks = [tracker]</span>
+                            </div>
+                            <br>
+                            <div class="terminal-line">
+                                <span class="terminal-comment"># Make LLM calls as usual</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-command">response = litellm.</span><span class="terminal-function">completion</span><span class="terminal-command">(</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-command">    model=</span><span class="terminal-string">"gpt-4"</span><span class="terminal-command">,</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-command">    messages=[{</span><span class="terminal-string">"role"</span><span class="terminal-command">: </span><span class="terminal-string">"user"</span><span class="terminal-command">, </span><span class="terminal-string">"content"</span><span class="terminal-command">: </span><span class="terminal-string">"Hello!"</span><span class="terminal-command">}]</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-command">)</span>
+                            </div>
+                            <br>
+                            <div class="terminal-line">
+                                <span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Cost: $</span><span class="terminal-command">{tracker.total_cost:</span><span class="terminal-number">.4f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Install Section -->
+    <section class="install-section">
+        <div class="container">
+            <div class="install-box">
+                <span class="install-label">Install via pip:</span>
+                <div class="install-command">
+                    <code>pip install llm-tokencost</code>
+                    <button class="copy-btn" onclick="copyToClipboard('pip install llm-tokencost')">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-header">
+                <div class="section-label">Features</div>
+                <h2 class="section-title">Everything You Need</h2>
+                <p class="section-subtitle">Track, monitor, and control your LLM spending with precision</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">💰</div>
+                    <h3 class="feature-title">Real-time Cost Tracking</h3>
+                    <p class="feature-desc">Automatically calculates costs during LLM calls using litellm's accurate pricing data for 1600+ models.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🚨</div>
+                    <h3 class="feature-title">Budget Alerts</h3>
+                    <p class="feature-desc">Set spending limits and get notified via callbacks or exceptions when budgets are exceeded.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3 class="feature-title">Async Support</h3>
+                    <p class="feature-desc">Works seamlessly with litellm.acompletion() for async workflows and high-performance applications.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3 class="feature-title">Per-Model Breakdown</h3>
+                    <p class="feature-desc">Get detailed cost aggregation by model to understand which models consume your budget.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3 class="feature-title">Thread-safe</h3>
+                    <p class="feature-desc">Built for concurrent usage with proper locking mechanisms for reliable multi-threaded applications.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📋</div>
+                    <h3 class="feature-title">Auto Exit Summary</h3>
+                    <p class="feature-desc">Automatically prints a detailed cost report when your program ends, no extra code needed.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code Examples Section -->
+    <section class="examples" id="examples">
+        <div class="container">
+            <div class="section-header">
+                <div class="section-label">Examples</div>
+                <h2 class="section-title">Code That Just Works</h2>
+                <p class="section-subtitle">Drop-in cost tracking for any litellm project</p>
+            </div>
+
+            <div class="examples-tabs">
+                <button class="tab-btn active" data-tab="basic">Basic Usage</button>
+                <button class="tab-btn" data-tab="budget">Budget Control</button>
+                <button class="tab-btn" data-tab="async">Async Support</button>
+                <button class="tab-btn" data-tab="breakdown">Model Breakdown</button>
+            </div>
+
+            <div class="code-example active" id="basic">
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-filename">basic_usage.py</span>
+                        <button class="copy-btn" onclick="copyCode('basic')">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="code-body">
+<pre><span class="terminal-keyword">import</span> <span class="terminal-command">litellm</span>
+<span class="terminal-keyword">from</span> <span class="terminal-command">tokencost</span> <span class="terminal-keyword">import</span> <span class="terminal-function">CostTracker</span>
+
+<span class="terminal-comment"># Create a tracker</span>
+<span class="terminal-command">tracker = </span><span class="terminal-function">CostTracker</span><span class="terminal-command">()</span>
+<span class="terminal-command">litellm.callbacks = [tracker]</span>
+
+<span class="terminal-comment"># Make LLM calls as usual</span>
+<span class="terminal-command">response = litellm.</span><span class="terminal-function">completion</span><span class="terminal-command">(</span>
+    <span class="terminal-command">model=</span><span class="terminal-string">"gpt-4"</span><span class="terminal-command">,</span>
+    <span class="terminal-command">messages=[{</span><span class="terminal-string">"role"</span><span class="terminal-command">: </span><span class="terminal-string">"user"</span><span class="terminal-command">, </span><span class="terminal-string">"content"</span><span class="terminal-command">: </span><span class="terminal-string">"Hello!"</span><span class="terminal-command">}]</span>
+<span class="terminal-command">)</span>
+
+<span class="terminal-comment"># Check usage</span>
+<span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Total: $</span><span class="terminal-command">{tracker.total_cost:</span><span class="terminal-number">.4f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
+<span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Requests: </span><span class="terminal-command">{tracker.request_count}</span><span class="terminal-string">"</span><span class="terminal-command">)</span></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="code-example" id="budget">
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-filename">budget_control.py</span>
+                        <button class="copy-btn" onclick="copyCode('budget')">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="code-body">
+<pre><span class="terminal-keyword">import</span> <span class="terminal-command">litellm</span>
+<span class="terminal-keyword">from</span> <span class="terminal-command">tokencost</span> <span class="terminal-keyword">import</span> <span class="terminal-function">CostTracker</span><span class="terminal-command">, </span><span class="terminal-function">BudgetExceededError</span>
+
+<span class="terminal-comment"># Create a tracker with a $5 budget</span>
+<span class="terminal-keyword">def</span> <span class="terminal-function">alert</span><span class="terminal-command">(tracker):</span>
+    <span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Budget exceeded! Spent $</span><span class="terminal-command">{tracker.total_cost:</span><span class="terminal-number">.2f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
+
+<span class="terminal-command">tracker = </span><span class="terminal-function">CostTracker</span><span class="terminal-command">(</span>
+    <span class="terminal-command">budget=</span><span class="terminal-number">5.00</span><span class="terminal-command">,</span>
+    <span class="terminal-command">on_budget_exceeded=alert,</span>
+    <span class="terminal-command">raise_on_budget=</span><span class="terminal-number">True</span>
+<span class="terminal-command">)</span>
+<span class="terminal-command">litellm.callbacks = [tracker]</span>
+
+<span class="terminal-keyword">try</span><span class="terminal-command">:</span>
+    <span class="terminal-command">response = litellm.</span><span class="terminal-function">completion</span><span class="terminal-command">(</span>
+        <span class="terminal-command">model=</span><span class="terminal-string">"gpt-4"</span><span class="terminal-command">,</span>
+        <span class="terminal-command">messages=[{</span><span class="terminal-string">"role"</span><span class="terminal-command">: </span><span class="terminal-string">"user"</span><span class="terminal-command">, </span><span class="terminal-string">"content"</span><span class="terminal-command">: </span><span class="terminal-string">"Hello!"</span><span class="terminal-command">}]</span>
+    <span class="terminal-command">)</span>
+<span class="terminal-keyword">except</span> <span class="terminal-function">BudgetExceededError</span> <span class="terminal-keyword">as</span> <span class="terminal-command">e:</span>
+    <span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Stopped at $</span><span class="terminal-command">{e.total_cost:</span><span class="terminal-number">.2f</span><span class="terminal-command">}</span><span class="terminal-string"> (budget: $</span><span class="terminal-command">{e.budget:</span><span class="terminal-number">.2f</span><span class="terminal-command">}</span><span class="terminal-string">)"</span><span class="terminal-command">)</span></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="code-example" id="async">
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-filename">async_usage.py</span>
+                        <button class="copy-btn" onclick="copyCode('async')">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="code-body">
+<pre><span class="terminal-keyword">import</span> <span class="terminal-command">asyncio</span>
+<span class="terminal-keyword">import</span> <span class="terminal-command">litellm</span>
+<span class="terminal-keyword">from</span> <span class="terminal-command">tokencost</span> <span class="terminal-keyword">import</span> <span class="terminal-function">CostTracker</span>
+
+<span class="terminal-keyword">async def</span> <span class="terminal-function">main</span><span class="terminal-command">():</span>
+    <span class="terminal-command">tracker = </span><span class="terminal-function">CostTracker</span><span class="terminal-command">()</span>
+    <span class="terminal-command">litellm.callbacks = [tracker]</span>
+
+    <span class="terminal-comment"># Works with async completions</span>
+    <span class="terminal-command">response = </span><span class="terminal-keyword">await</span><span class="terminal-command"> litellm.</span><span class="terminal-function">acompletion</span><span class="terminal-command">(</span>
+        <span class="terminal-command">model=</span><span class="terminal-string">"gpt-4"</span><span class="terminal-command">,</span>
+        <span class="terminal-command">messages=[{</span><span class="terminal-string">"role"</span><span class="terminal-command">: </span><span class="terminal-string">"user"</span><span class="terminal-command">, </span><span class="terminal-string">"content"</span><span class="terminal-command">: </span><span class="terminal-string">"Hello!"</span><span class="terminal-command">}]</span>
+    <span class="terminal-command">)</span>
+
+    <span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Cost: $</span><span class="terminal-command">{tracker.total_cost:</span><span class="terminal-number">.6f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
+
+<span class="terminal-command">asyncio.</span><span class="terminal-function">run</span><span class="terminal-command">(main())</span></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="code-example" id="breakdown">
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-filename">model_breakdown.py</span>
+                        <button class="copy-btn" onclick="copyCode('breakdown')">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="code-body">
+<pre><span class="terminal-keyword">import</span> <span class="terminal-command">litellm</span>
+<span class="terminal-keyword">from</span> <span class="terminal-command">tokencost</span> <span class="terminal-keyword">import</span> <span class="terminal-function">CostTracker</span>
+
+<span class="terminal-command">tracker = </span><span class="terminal-function">CostTracker</span><span class="terminal-command">()</span>
+<span class="terminal-command">litellm.callbacks = [tracker]</span>
+
+<span class="terminal-comment"># Make calls to different models</span>
+<span class="terminal-command">litellm.</span><span class="terminal-function">completion</span><span class="terminal-command">(model=</span><span class="terminal-string">"gpt-4"</span><span class="terminal-command">, messages=[...])</span>
+<span class="terminal-command">litellm.</span><span class="terminal-function">completion</span><span class="terminal-command">(model=</span><span class="terminal-string">"gpt-3.5-turbo"</span><span class="terminal-command">, messages=[...])</span>
+<span class="terminal-command">litellm.</span><span class="terminal-function">completion</span><span class="terminal-command">(model=</span><span class="terminal-string">"claude-3-sonnet"</span><span class="terminal-command">, messages=[...])</span>
+
+<span class="terminal-comment"># Get cost breakdown by model</span>
+<span class="terminal-keyword">for</span> <span class="terminal-command">model, cost </span><span class="terminal-keyword">in</span><span class="terminal-command"> tracker.cost_by_model.items():</span>
+    <span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"</span><span class="terminal-command">{model}</span><span class="terminal-string">: $</span><span class="terminal-command">{cost:</span><span class="terminal-number">.6f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
+
+<span class="terminal-comment"># Access full history</span>
+<span class="terminal-keyword">for</span> <span class="terminal-command">entry </span><span class="terminal-keyword">in</span><span class="terminal-command"> tracker.history:</span>
+    <span class="terminal-keyword">print</span><span class="terminal-command">(entry)</span></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- API Reference Section -->
+    <section class="api-reference" id="api">
+        <div class="container">
+            <div class="section-header">
+                <div class="section-label">API Reference</div>
+                <h2 class="section-title">Full Documentation</h2>
+                <p class="section-subtitle">Everything you need to integrate cost tracking</p>
+            </div>
+
+            <div class="api-grid">
+                <div class="api-card">
+                    <h3 class="api-card-title">CostTracker</h3>
+                    <p class="api-card-subtitle">Constructor Parameters</p>
+                    <ul class="api-props">
+                        <li class="api-prop">
+                            <span class="api-prop-name">budget</span>
+                            <span class="api-prop-type">float | None</span>
+                            <p class="api-prop-desc">Spending limit in USD. None means unlimited.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">on_budget_exceeded</span>
+                            <span class="api-prop-type">Callable | None</span>
+                            <p class="api-prop-desc">Callback function when budget is exceeded. Receives tracker instance.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">raise_on_budget</span>
+                            <span class="api-prop-type">bool</span>
+                            <p class="api-prop-desc">If True, raises BudgetExceededError when budget exceeded.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">print_summary</span>
+                            <span class="api-prop-type">bool</span>
+                            <p class="api-prop-desc">If True, prints cost summary when program exits.</p>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="api-card">
+                    <h3 class="api-card-title">Properties</h3>
+                    <p class="api-card-subtitle">Available on CostTracker instance</p>
+                    <ul class="api-props">
+                        <li class="api-prop">
+                            <span class="api-prop-name">total_cost</span>
+                            <span class="api-prop-type">float</span>
+                            <p class="api-prop-desc">Running total cost in USD.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">request_count</span>
+                            <span class="api-prop-type">int</span>
+                            <p class="api-prop-desc">Number of successful requests tracked.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">history</span>
+                            <span class="api-prop-type">list[dict]</span>
+                            <p class="api-prop-desc">All logged requests with model, tokens, cost, timestamp.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">cost_by_model</span>
+                            <span class="api-prop-type">dict[str, float]</span>
+                            <p class="api-prop-desc">Cost aggregated by model name.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">budget_exceeded</span>
+                            <span class="api-prop-type">bool</span>
+                            <p class="api-prop-desc">Whether the budget has been exceeded.</p>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Exit Summary Section -->
+    <section class="summary-section">
+        <div class="container">
+            <div class="summary-content">
+                <div class="summary-text">
+                    <h2>Automatic <span>Exit Summary</span></h2>
+                    <p>When your program ends, you get a detailed cost report automatically. No extra code needed.</p>
+                    <ul class="summary-features">
+                        <li>Total cost and request count</li>
+                        <li>Budget status and remaining funds</li>
+                        <li>Per-request breakdown with token counts</li>
+                        <li>Disable with print_summary=False</li>
+                    </ul>
+                </div>
+                <div class="summary-terminal">
+                    <div class="terminal-header">
+                        <span class="terminal-dot red"></span>
+                        <span class="terminal-dot yellow"></span>
+                        <span class="terminal-dot green"></span>
+                        <span class="terminal-title">terminal output</span>
+                    </div>
+                    <div class="summary-output">
+                        <div class="summary-line header">==================================================</div>
+                        <div class="summary-line header">LLM COST SUMMARY</div>
+                        <div class="summary-line header">==================================================</div>
+                        <div class="summary-line">Total Cost:     <span class="cost">$0.001959</span></div>
+                        <div class="summary-line">Total Requests: 4</div>
+                        <div class="summary-line">Budget:         $0.0100 (<span class="highlight">OK</span>)</div>
+                        <div class="summary-line">Remaining:      <span class="highlight">$0.008041</span></div>
+                        <div class="summary-line divider">--------------------------------------------------</div>
+                        <div class="summary-line">Requests:</div>
+                        <div class="summary-line">  1. gpt-4: 7+18 tokens = <span class="cost">$0.000750</span></div>
+                        <div class="summary-line">  2. gpt-4: 13+17 tokens = <span class="cost">$0.000900</span></div>
+                        <div class="summary-line">  3. gpt-3.5-turbo: 8+82 tokens = <span class="cost">$0.000166</span></div>
+                        <div class="summary-line">  4. gpt-3.5-turbo: 10+58 tokens = <span class="cost">$0.000143</span></div>
+                        <div class="summary-line header">==================================================</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-logo">$ llm-tokencost</div>
+                <ul class="footer-links">
+                    <li><a href="https://github.com/Paawan13/llm-tokencost" target="_blank">GitHub</a></li>
+                    <li><a href="https://pypi.org/project/llm-tokencost/" target="_blank">PyPI</a></li>
+                    <li><a href="https://github.com/Paawan13/llm-tokencost/issues" target="_blank">Issues</a></li>
+                </ul>
+                <div class="footer-copy">MIT License &copy; 2024</div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tab = btn.dataset.tab;
+
+                // Update active tab button
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                // Show corresponding code example
+                document.querySelectorAll('.code-example').forEach(ex => ex.classList.remove('active'));
+                document.getElementById(tab).classList.add('active');
+            });
+        });
+
+        // Copy to clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                // Could add a toast notification here
+            });
+        }
+
+        function copyCode(tabId) {
+            const codeBlock = document.querySelector(`#${tabId} pre`);
+            const text = codeBlock.innerText;
+            copyToClipboard(text);
+        }
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+
+        // Add scroll-based nav background
+        window.addEventListener('scroll', () => {
+            const nav = document.querySelector('nav');
+            if (window.scrollY > 50) {
+                nav.style.background = 'rgba(10, 10, 15, 0.95)';
+            } else {
+                nav.style.background = 'rgba(10, 10, 15, 0.8)';
+            }
+        });
+    </script>
+</body>
+</html>
