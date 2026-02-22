@@ -1,5 +1,6 @@
 """Cost tracker implementation using litellm's CustomLogger."""
 
+import asyncio
 import atexit
 import threading
 from datetime import datetime, timezone
@@ -46,6 +47,7 @@ class CostTracker(CustomLogger):
         self._total_cost: float = 0.0
         self._request_count: int = 0
         self._history: list[dict] = []
+        self._cost_by_model: dict[str, float] = {}
         self._budget_exceeded: bool = False
         self._callback_fired: bool = False
         self._lock = threading.Lock()
@@ -86,11 +88,7 @@ class CostTracker(CustomLogger):
     def cost_by_model(self) -> dict[str, float]:
         """Cost aggregated by model name."""
         with self._lock:
-            costs: dict[str, float] = {}
-            for entry in self._history:
-                model = entry["model"]
-                costs[model] = costs.get(model, 0.0) + entry["cost"]
-            return costs
+            return self._cost_by_model.copy()
 
     def reset(self) -> None:
         """Clear all tracked data and reset budget exceeded state."""
@@ -98,6 +96,7 @@ class CostTracker(CustomLogger):
             self._total_cost = 0.0
             self._request_count = 0
             self._history.clear()
+            self._cost_by_model.clear()
             self._budget_exceeded = False
             self._callback_fired = False
 
@@ -128,6 +127,7 @@ class CostTracker(CustomLogger):
             self._history.append(entry)
             self._total_cost += cost
             self._request_count += 1
+            self._cost_by_model[model] = self._cost_by_model.get(model, 0.0) + cost
 
         self._check_budget()
 
@@ -155,10 +155,11 @@ class CostTracker(CustomLogger):
         """Log a successful LLM completion event (async version).
 
         This method is called by litellm after a successful async completion.
-        Uses the same logic as log_success_event since the actual recording
-        is CPU-bound and thread-safe.
+        Runs in a thread pool to avoid blocking the event loop.
         """
-        self.log_success_event(kwargs, response_obj, start_time, end_time)
+        await asyncio.to_thread(
+            self.log_success_event, kwargs, response_obj, start_time, end_time
+        )
 
     def log_stream_event(self, kwargs, response_obj, start_time, end_time) -> None:
         """Log a streaming chunk event.

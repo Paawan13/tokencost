@@ -261,7 +261,7 @@ class TestThreadSafety:
         expected_cost = expected_count * 0.01
 
         assert tracker.request_count == expected_count
-        assert abs(tracker.total_cost - expected_cost) < 0.0001
+        assert tracker.total_cost == pytest.approx(expected_cost)
         assert len(tracker.history) == expected_count
 
     @patch("llm_cost.tracker.completion_cost")
@@ -337,7 +337,7 @@ class TestCostByModel:
 
         costs = tracker.cost_by_model
         assert len(costs) == 1
-        assert abs(costs["gpt-4"] - 0.15) < 0.0001
+        assert costs["gpt-4"] == pytest.approx(0.15)
 
     @patch("llm_cost.tracker.completion_cost")
     def test_cost_by_model_multiple_models(self, mock_completion_cost):
@@ -378,9 +378,9 @@ class TestCostByModel:
 
         costs = tracker.cost_by_model
         assert len(costs) == 3
-        assert abs(costs["gpt-4"] - 0.20) < 0.0001
-        assert abs(costs["gpt-3.5-turbo"] - 0.03) < 0.0001
-        assert abs(costs["claude-3"] - 0.05) < 0.0001
+        assert costs["gpt-4"] == pytest.approx(0.20)
+        assert costs["gpt-3.5-turbo"] == pytest.approx(0.03)
+        assert costs["claude-3"] == pytest.approx(0.05)
 
 
 class TestAsyncSupport:
