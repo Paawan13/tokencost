@@ -275,7 +275,7 @@ class CostTracker(CustomLogger):
                 self._completion_count += 1
                 self._cost_by_request_type["completion"] += cost
 
-        self._check_budget(request_type)
+        self._check_budget()
 
     def _extract_and_record(self, kwargs, response_obj) -> None:
         """Extract cost info from response and record it."""
@@ -355,12 +355,8 @@ class CostTracker(CustomLogger):
         """
         pass
 
-    def _check_budget(self, request_type: str = "completion") -> None:
-        """Check if any budget is exceeded and trigger alerts if so (thread-safe).
-
-        Args:
-            request_type: The type of request that triggered this check.
-        """
+    def _check_budget(self) -> None:
+        """Check if any budget is exceeded and trigger alerts if so (thread-safe)."""
         # Collect actions to execute outside the lock
         actions: list[tuple[str, float, float]] = []
 
@@ -447,7 +443,7 @@ class CostTracker(CustomLogger):
         if self._budget is not None:
             remaining = self._budget - total_cost
             status = "EXCEEDED" if budget_exceeded else "OK"
-            print(f"Total Budget:   ${self._budget:.4f} ({status})")
+            print(f"Total Budget:   ${self._budget:.2f} ({status})")
             if not budget_exceeded:
                 print(f"Remaining:      ${remaining:.6f}")
 

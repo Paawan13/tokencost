@@ -311,14 +311,15 @@ class _WrappedEmbeddings:
     def __init__(self, original_embeddings: Any, tracker: "CostTracker | None") -> None:
         self._original = original_embeddings
         self._tracker = tracker
+        self._create = _make_wrapped_embedding_create(
+            self._original.create, self._tracker
+        )
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._original, name)
 
     def create(self, *args: Any, **kwargs: Any) -> Any:
-        return _make_wrapped_embedding_create(self._original.create, self._tracker)(
-            *args, **kwargs
-        )
+        return self._create(*args, **kwargs)
 
 
 class _WrappedAsyncEmbeddings:
@@ -327,14 +328,15 @@ class _WrappedAsyncEmbeddings:
     def __init__(self, original_embeddings: Any, tracker: "CostTracker | None") -> None:
         self._original = original_embeddings
         self._tracker = tracker
+        self._create = _make_wrapped_async_embedding_create(
+            self._original.create, self._tracker
+        )
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._original, name)
 
     async def create(self, *args: Any, **kwargs: Any) -> Any:
-        return await _make_wrapped_async_embedding_create(
-            self._original.create, self._tracker
-        )(*args, **kwargs)
+        return await self._create(*args, **kwargs)
 
 
 class _WrappedCompletions:

@@ -26,13 +26,10 @@ class EmbeddingBudgetExceededError(BudgetExceededError):
     """
 
     def __init__(self, budget: float, total_cost: float) -> None:
-        # Call Exception.__init__ directly to customize message
-        Exception.__init__(
-            self,
+        super().__init__(budget, total_cost)
+        self.args = (
             f"Embedding budget exceeded: spent ${total_cost:.4f} (budget: ${budget:.2f})",
         )
-        self.budget = budget
-        self.total_cost = total_cost
 
 
 class CompletionBudgetExceededError(BudgetExceededError):
@@ -44,10 +41,7 @@ class CompletionBudgetExceededError(BudgetExceededError):
     """
 
     def __init__(self, budget: float, total_cost: float) -> None:
-        # Call Exception.__init__ directly to customize message
-        Exception.__init__(
-            self,
+        super().__init__(budget, total_cost)
+        self.args = (
             f"Completion budget exceeded: spent ${total_cost:.4f} (budget: ${budget:.2f})",
         )
-        self.budget = budget
-        self.total_cost = total_cost
