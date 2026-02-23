@@ -63,9 +63,9 @@ def get_model_pricing(model: str) -> dict:
     if model in model_cost:
         return model_cost[model].copy()
 
-    # Try with common prefixes for provider-specific models
+    # Try with provider prefix (e.g., "openai/gpt-4o" for "gpt-4o")
     for key in model_cost:
-        if key.endswith(model) or model.endswith(key):
+        if key == model or key.endswith("/" + model):
             return model_cost[key].copy()
 
     raise ValueError(f"Unknown model: {model}")

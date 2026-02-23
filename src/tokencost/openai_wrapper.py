@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 # Global state for patching
 _original_create = None
 _original_async_create = None
-_global_tracker = None
+_global_tracker: "CostTracker | None" = None
 
 
 def _extract_usage(response: Any) -> tuple[str, int, int]:
@@ -72,7 +72,7 @@ def _record_to_tracker(
         # Unknown model, skip recording
         return
 
-    tracker._record_cost(model, prompt_tokens, completion_tokens, cost)
+    tracker.record_cost(model, prompt_tokens, completion_tokens, cost)
 
 
 def _wrap_streaming_response(stream: Any, tracker: "CostTracker | None") -> Any:
@@ -123,7 +123,8 @@ def _make_wrapped_create(original_create: Any, tracker: "CostTracker | None") ->
         # For streaming, inject stream_options to include usage
         is_streaming = kwargs.get("stream", False)
         if is_streaming:
-            stream_options = kwargs.get("stream_options", {}) or {}
+            # Copy to avoid modifying caller's dict
+            stream_options = dict(kwargs.get("stream_options", {}) or {})
             stream_options["include_usage"] = True
             kwargs["stream_options"] = stream_options
 
@@ -149,12 +150,67 @@ def _make_wrapped_async_create(
         # For streaming, inject stream_options to include usage
         is_streaming = kwargs.get("stream", False)
         if is_streaming:
-            stream_options = kwargs.get("stream_options", {}) or {}
+            # Copy to avoid modifying caller's dict
+            stream_options = dict(kwargs.get("stream_options", {}) or {})
             stream_options["include_usage"] = True
             kwargs["stream_options"] = stream_options
 
         response = await original_create(*args, **kwargs)
 
+        if is_streaming:
+            return _wrap_async_streaming_response(response, tracker)
+        else:
+            model, prompt_tokens, completion_tokens = _extract_usage(response)
+            _record_to_tracker(tracker, model, prompt_tokens, completion_tokens)
+            return response
+
+    return wrapped_create
+
+
+def _make_global_wrapped_create(original_create: Any) -> Any:
+    """Create a wrapped version that uses the global tracker (for patch_openai)."""
+
+    @functools.wraps(original_create)
+    def wrapped_create(*args: Any, **kwargs: Any) -> Any:
+        # For streaming, inject stream_options to include usage
+        is_streaming = kwargs.get("stream", False)
+        if is_streaming:
+            # Copy to avoid modifying caller's dict
+            stream_options = dict(kwargs.get("stream_options", {}) or {})
+            stream_options["include_usage"] = True
+            kwargs["stream_options"] = stream_options
+
+        response = original_create(*args, **kwargs)
+
+        # Use global tracker (looked up at call time, not closure time)
+        tracker = _global_tracker
+        if is_streaming:
+            return _wrap_streaming_response(response, tracker)
+        else:
+            model, prompt_tokens, completion_tokens = _extract_usage(response)
+            _record_to_tracker(tracker, model, prompt_tokens, completion_tokens)
+            return response
+
+    return wrapped_create
+
+
+def _make_global_wrapped_async_create(original_create: Any) -> Any:
+    """Create a wrapped async version that uses the global tracker (for patch_openai)."""
+
+    @functools.wraps(original_create)
+    async def wrapped_create(*args: Any, **kwargs: Any) -> Any:
+        # For streaming, inject stream_options to include usage
+        is_streaming = kwargs.get("stream", False)
+        if is_streaming:
+            # Copy to avoid modifying caller's dict
+            stream_options = dict(kwargs.get("stream_options", {}) or {})
+            stream_options["include_usage"] = True
+            kwargs["stream_options"] = stream_options
+
+        response = await original_create(*args, **kwargs)
+
+        # Use global tracker (looked up at call time, not closure time)
+        tracker = _global_tracker
         if is_streaming:
             return _wrap_async_streaming_response(response, tracker)
         else:
@@ -273,9 +329,12 @@ def patch_openai(tracker: "CostTracker | None" = None) -> None:
     After calling this function, all OpenAI client instances will
     automatically have their chat.completions.create() calls tracked.
 
+    This function can be called multiple times with different trackers.
+    Each call updates the active tracker used for cost recording.
+
     Args:
-        tracker: CostTracker instance to record costs. If None, a new
-            tracker is created internally.
+        tracker: CostTracker instance to record costs. If None, costs are
+            calculated but not recorded.
 
     Example:
         >>> from tokencost import CostTracker, patch_openai
@@ -301,18 +360,19 @@ def patch_openai(tracker: "CostTracker | None" = None) -> None:
             "OpenAI SDK not installed. Install it with: pip install openai"
         ) from e
 
+    # Update the global tracker (can be changed on subsequent calls)
     _global_tracker = tracker
 
-    # Patch sync completions
+    # Patch sync completions (only once)
     if _original_create is None:
         _original_create = Completions.create
-        Completions.create = _make_wrapped_create(_original_create, tracker)
+        Completions.create = _make_global_wrapped_create(_original_create)
 
-    # Patch async completions
+    # Patch async completions (only once)
     if _original_async_create is None:
         _original_async_create = AsyncCompletions.create
-        AsyncCompletions.create = _make_wrapped_async_create(
-            _original_async_create, tracker
+        AsyncCompletions.create = _make_global_wrapped_async_create(
+            _original_async_create
         )
 
 

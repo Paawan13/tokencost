@@ -260,17 +260,24 @@ class TestTrackOpenaiAsync:
 class TestPatchUnpatchOpenai:
     """Tests for patch_openai and unpatch_openai functions."""
 
-    def test_patch_openai_without_sdk(self):
-        """Test that patch_openai raises ImportError when SDK not installed."""
-        with patch.dict("sys.modules", {"openai": None}):
-            # Reset the global state
-            import tokencost.openai_wrapper as wrapper
+    def test_patch_openai_changes_tracker(self):
+        """Test that patch_openai can update the tracker on subsequent calls."""
+        import tokencost.openai_wrapper as wrapper
 
-            wrapper._original_create = None
-            wrapper._original_async_create = None
+        # Ensure we start fresh
+        unpatch_openai()
 
-            # This should work since openai is likely installed in test env
-            # But if not, it should raise ImportError
+        tracker1 = CostTracker(print_summary=False)
+        tracker2 = CostTracker(print_summary=False)
+
+        patch_openai(tracker1)
+        assert wrapper._global_tracker is tracker1
+
+        # Calling again should update the tracker
+        patch_openai(tracker2)
+        assert wrapper._global_tracker is tracker2
+
+        unpatch_openai()
 
     def test_unpatch_openai_when_not_patched(self):
         """Test that unpatch_openai is safe to call when not patched."""

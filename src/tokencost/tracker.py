@@ -99,6 +99,26 @@ class CostTracker(CustomLogger):
             self._budget_exceeded = False
             self._callback_fired = False
 
+    def record_cost(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cost: float,
+    ) -> None:
+        """Record a cost entry manually (thread-safe).
+
+        This is the public API for recording costs from external integrations
+        like the OpenAI wrapper.
+
+        Args:
+            model: The model name.
+            prompt_tokens: Number of prompt tokens.
+            completion_tokens: Number of completion tokens.
+            cost: Cost in USD.
+        """
+        self._record_cost(model, prompt_tokens, completion_tokens, cost)
+
     def _record_cost(
         self,
         model: str,
@@ -106,7 +126,7 @@ class CostTracker(CustomLogger):
         completion_tokens: int,
         cost: float,
     ) -> None:
-        """Record a cost entry (thread-safe).
+        """Record a cost entry (thread-safe, internal).
 
         Args:
             model: The model name.
