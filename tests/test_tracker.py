@@ -8,7 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tokencost import BudgetExceededError, CostTracker
+from tokencost import (
+    BudgetExceededError,
+    CompletionBudgetExceededError,
+    CostTracker,
+    EmbeddingBudgetExceededError,
+)
 
 
 class TestCostTracker:
@@ -488,3 +493,399 @@ class TestStreamingSupport:
         assert tracker.total_cost == 0.05
         assert tracker.request_count == 1
         assert len(tracker.history) == 1
+
+
+class TestEmbeddingTracking:
+    """Tests for embedding-specific cost tracking."""
+
+    def test_initial_embedding_state(self):
+        """Tracker should start with zero embedding cost."""
+        tracker = CostTracker(print_summary=False)
+
+        assert tracker.embedding_cost == 0.0
+        assert tracker.completion_cost == 0.0
+        assert tracker.embedding_count == 0
+        assert tracker.completion_count == 0
+        assert tracker.cost_by_request_type == {"embedding": 0.0, "completion": 0.0}
+        assert tracker.embedding_budget is None
+        assert tracker.completion_budget is None
+        assert tracker.embedding_budget_exceeded is False
+        assert tracker.completion_budget_exceeded is False
+
+    def test_embedding_budget_configuration(self):
+        """Embedding and completion budgets should be configurable."""
+        tracker = CostTracker(
+            budget=10.0,
+            embedding_budget=1.0,
+            completion_budget=8.0,
+            print_summary=False,
+        )
+
+        assert tracker.budget == 10.0
+        assert tracker.embedding_budget == 1.0
+        assert tracker.completion_budget == 8.0
+
+    def test_record_embedding_cost(self):
+        """Embedding costs should be tracked separately."""
+        tracker = CostTracker(print_summary=False)
+
+        tracker.record_cost(
+            model="text-embedding-3-small",
+            prompt_tokens=100,
+            completion_tokens=0,
+            cost=0.00001,
+            request_type="embedding",
+        )
+
+        assert tracker.total_cost == 0.00001
+        assert tracker.embedding_cost == 0.00001
+        assert tracker.completion_cost == 0.0
+        assert tracker.embedding_count == 1
+        assert tracker.completion_count == 0
+        assert tracker.request_count == 1
+        assert tracker.cost_by_request_type["embedding"] == 0.00001
+        assert tracker.cost_by_request_type["completion"] == 0.0
+
+    def test_record_completion_cost(self):
+        """Completion costs should be tracked separately."""
+        tracker = CostTracker(print_summary=False)
+
+        tracker.record_cost(
+            model="gpt-4o",
+            prompt_tokens=100,
+            completion_tokens=50,
+            cost=0.001,
+            request_type="completion",
+        )
+
+        assert tracker.total_cost == 0.001
+        assert tracker.embedding_cost == 0.0
+        assert tracker.completion_cost == 0.001
+        assert tracker.embedding_count == 0
+        assert tracker.completion_count == 1
+        assert tracker.request_count == 1
+
+    def test_mixed_embedding_and_completion(self):
+        """Mixed requests should track both types correctly."""
+        tracker = CostTracker(print_summary=False)
+
+        # Add embeddings
+        tracker.record_cost(
+            model="text-embedding-3-small",
+            prompt_tokens=100,
+            completion_tokens=0,
+            cost=0.00001,
+            request_type="embedding",
+        )
+        tracker.record_cost(
+            model="text-embedding-3-small",
+            prompt_tokens=200,
+            completion_tokens=0,
+            cost=0.00002,
+            request_type="embedding",
+        )
+
+        # Add completion
+        tracker.record_cost(
+            model="gpt-4o",
+            prompt_tokens=100,
+            completion_tokens=50,
+            cost=0.001,
+            request_type="completion",
+        )
+
+        assert tracker.total_cost == pytest.approx(0.00103)
+        assert tracker.embedding_cost == pytest.approx(0.00003)
+        assert tracker.completion_cost == pytest.approx(0.001)
+        assert tracker.embedding_count == 2
+        assert tracker.completion_count == 1
+        assert tracker.request_count == 3
+
+    def test_history_includes_request_type(self):
+        """History entries should include request_type."""
+        tracker = CostTracker(print_summary=False)
+
+        tracker.record_cost(
+            model="text-embedding-3-small",
+            prompt_tokens=100,
+            completion_tokens=0,
+            cost=0.00001,
+            request_type="embedding",
+        )
+
+        assert len(tracker.history) == 1
+        assert tracker.history[0]["request_type"] == "embedding"
+
+    def test_reset_clears_embedding_data(self):
+        """Reset should clear embedding-specific data."""
+        tracker = CostTracker(
+            embedding_budget=1.0, completion_budget=5.0, print_summary=False
+        )
+
+        tracker.record_cost(
+            model="text-embedding-3-small",
+            prompt_tokens=100,
+            completion_tokens=0,
+            cost=0.00001,
+            request_type="embedding",
+        )
+
+        tracker.reset()
+
+        assert tracker.embedding_cost == 0.0
+        assert tracker.completion_cost == 0.0
+        assert tracker.embedding_count == 0
+        assert tracker.completion_count == 0
+        assert tracker.cost_by_request_type == {"embedding": 0.0, "completion": 0.0}
+        assert tracker.embedding_budget_exceeded is False
+        assert tracker.completion_budget_exceeded is False
+
+
+class TestEmbeddingBudgets:
+    """Tests for embedding-specific budget enforcement."""
+
+    def test_embedding_budget_exceeded(self):
+        """Embedding budget should be enforced separately."""
+        callback = MagicMock()
+        tracker = CostTracker(
+            embedding_budget=0.00001,
+            on_embedding_budget_exceeded=callback,
+            print_summary=False,
+        )
+
+        tracker.record_cost(
+            model="text-embedding-3-small",
+            prompt_tokens=100,
+            completion_tokens=0,
+            cost=0.00002,
+            request_type="embedding",
+        )
+
+        assert tracker.embedding_budget_exceeded is True
+        assert tracker.budget_exceeded is False  # Total budget not set
+        callback.assert_called_once_with(tracker)
+
+    def test_completion_budget_exceeded(self):
+        """Completion budget should be enforced separately."""
+        callback = MagicMock()
+        tracker = CostTracker(
+            completion_budget=0.0005,
+            on_completion_budget_exceeded=callback,
+            print_summary=False,
+        )
+
+        tracker.record_cost(
+            model="gpt-4o",
+            prompt_tokens=100,
+            completion_tokens=50,
+            cost=0.001,
+            request_type="completion",
+        )
+
+        assert tracker.completion_budget_exceeded is True
+        assert tracker.budget_exceeded is False  # Total budget not set
+        callback.assert_called_once_with(tracker)
+
+    def test_embedding_budget_raises_exception(self):
+        """EmbeddingBudgetExceededError should be raised when configured."""
+        tracker = CostTracker(
+            embedding_budget=0.00001,
+            raise_on_budget=True,
+            print_summary=False,
+        )
+
+        with pytest.raises(EmbeddingBudgetExceededError) as exc_info:
+            tracker.record_cost(
+                model="text-embedding-3-small",
+                prompt_tokens=100,
+                completion_tokens=0,
+                cost=0.00002,
+                request_type="embedding",
+            )
+
+        assert exc_info.value.budget == 0.00001
+        assert exc_info.value.total_cost == 0.00002
+        assert "Embedding budget" in str(exc_info.value)
+
+    def test_completion_budget_raises_exception(self):
+        """CompletionBudgetExceededError should be raised when configured."""
+        tracker = CostTracker(
+            completion_budget=0.0005,
+            raise_on_budget=True,
+            print_summary=False,
+        )
+
+        with pytest.raises(CompletionBudgetExceededError) as exc_info:
+            tracker.record_cost(
+                model="gpt-4o",
+                prompt_tokens=100,
+                completion_tokens=50,
+                cost=0.001,
+                request_type="completion",
+            )
+
+        assert exc_info.value.budget == 0.0005
+        assert exc_info.value.total_cost == 0.001
+        assert "Completion budget" in str(exc_info.value)
+
+    def test_all_budgets_with_callbacks(self):
+        """All three budgets can be set with separate callbacks."""
+        total_callback = MagicMock()
+        embedding_callback = MagicMock()
+        completion_callback = MagicMock()
+
+        tracker = CostTracker(
+            budget=0.007,  # Total budget that will be exceeded by 0.002 + 0.006 = 0.008
+            embedding_budget=0.001,
+            completion_budget=0.005,
+            on_budget_exceeded=total_callback,
+            on_embedding_budget_exceeded=embedding_callback,
+            on_completion_budget_exceeded=completion_callback,
+            print_summary=False,
+        )
+
+        # Exceed embedding budget
+        tracker.record_cost(
+            model="text-embedding-3-small",
+            prompt_tokens=100,
+            completion_tokens=0,
+            cost=0.002,
+            request_type="embedding",
+        )
+
+        assert tracker.embedding_budget_exceeded is True
+        embedding_callback.assert_called_once()
+        total_callback.assert_not_called()  # Total not exceeded yet
+
+        # Exceed completion budget
+        tracker.record_cost(
+            model="gpt-4o",
+            prompt_tokens=100,
+            completion_tokens=50,
+            cost=0.006,
+            request_type="completion",
+        )
+
+        assert tracker.completion_budget_exceeded is True
+        completion_callback.assert_called_once()
+
+        # Now total should also be exceeded (0.002 + 0.006 = 0.008 > 0.007)
+        assert tracker.budget_exceeded is True
+        total_callback.assert_called_once()
+
+    def test_embedding_callback_fires_only_once(self):
+        """Each budget callback should fire only once."""
+        embedding_callback = MagicMock()
+
+        tracker = CostTracker(
+            embedding_budget=0.00001,
+            on_embedding_budget_exceeded=embedding_callback,
+            print_summary=False,
+        )
+
+        # Multiple requests exceeding budget
+        for _ in range(3):
+            tracker.record_cost(
+                model="text-embedding-3-small",
+                prompt_tokens=100,
+                completion_tokens=0,
+                cost=0.00002,
+                request_type="embedding",
+            )
+
+        embedding_callback.assert_called_once()
+
+
+class TestEmbeddingDetection:
+    """Tests for automatic embedding model detection."""
+
+    @patch("tokencost.tracker.completion_cost")
+    @patch("tokencost.tracker.is_embedding_model")
+    def test_detect_embedding_from_call_type(
+        self, mock_is_embedding, mock_completion_cost
+    ):
+        """Should detect embedding from call_type in kwargs."""
+        mock_completion_cost.return_value = 0.00001
+        mock_is_embedding.return_value = False  # Not needed if call_type is set
+
+        tracker = CostTracker(print_summary=False)
+
+        mock_response = MagicMock()
+        mock_response.usage.prompt_tokens = 100
+        mock_response.usage.completion_tokens = 0
+
+        tracker.log_success_event(
+            kwargs={"model": "text-embedding-3-small", "call_type": "embedding"},
+            response_obj=mock_response,
+            start_time=None,
+            end_time=None,
+        )
+
+        assert tracker.embedding_count == 1
+        assert tracker.completion_count == 0
+
+    @patch("tokencost.tracker.completion_cost")
+    @patch("tokencost.tracker.is_embedding_model")
+    def test_detect_embedding_from_model_name(
+        self, mock_is_embedding, mock_completion_cost
+    ):
+        """Should detect embedding from model name."""
+        mock_completion_cost.return_value = 0.00001
+        mock_is_embedding.return_value = True
+
+        tracker = CostTracker(print_summary=False)
+
+        mock_response = MagicMock()
+        mock_response.usage.prompt_tokens = 100
+        mock_response.usage.completion_tokens = 0
+
+        tracker.log_success_event(
+            kwargs={"model": "text-embedding-3-small"},
+            response_obj=mock_response,
+            start_time=None,
+            end_time=None,
+        )
+
+        assert tracker.embedding_count == 1
+        assert tracker.completion_count == 0
+
+
+class TestEmbeddingExitSummary:
+    """Tests for exit summary with embedding breakdown."""
+
+    def test_exit_summary_shows_embedding_breakdown(self):
+        """Exit summary should show embedding vs completion breakdown."""
+        tracker = CostTracker(
+            budget=10.0,
+            embedding_budget=1.0,
+            completion_budget=8.0,
+            print_summary=False,
+        )
+
+        tracker.record_cost(
+            model="text-embedding-3-small",
+            prompt_tokens=100,
+            completion_tokens=0,
+            cost=0.00001,
+            request_type="embedding",
+        )
+        tracker.record_cost(
+            model="gpt-4o",
+            prompt_tokens=100,
+            completion_tokens=50,
+            cost=0.001,
+            request_type="completion",
+        )
+
+        # Capture stdout
+        captured_output = io.StringIO()
+        sys.stdout = captured_output
+        tracker._print_exit_summary()
+        sys.stdout = sys.__stdout__
+
+        output = captured_output.getvalue()
+        assert "By Type:" in output
+        assert "Embeddings:" in output
+        assert "Completions:" in output
+        assert "[E]" in output  # Embedding indicator
+        assert "[C]" in output  # Completion indicator

@@ -6,8 +6,10 @@ import pytest
 
 from tokencost import CostTracker
 from tokencost.openai_wrapper import (
+    _extract_embedding_usage,
     _extract_streaming_usage,
     _extract_usage,
+    _record_embedding_to_tracker,
     _record_to_tracker,
     patch_openai,
     track_openai,
@@ -331,3 +333,218 @@ class TestBudgetIntegration:
         # Cost should be 5x single request cost
         single_cost = tracker.history[0]["cost"]
         assert abs(tracker.total_cost - single_cost * 5) < 0.0001
+
+
+class MockEmbeddingUsage:
+    """Mock OpenAI embedding usage object."""
+
+    def __init__(self, prompt_tokens: int, total_tokens: int):
+        self.prompt_tokens = prompt_tokens
+        self.total_tokens = total_tokens
+
+
+class MockEmbeddingResponse:
+    """Mock OpenAI embedding response."""
+
+    def __init__(
+        self,
+        model: str = "text-embedding-3-small",
+        prompt_tokens: int = 100,
+        total_tokens: int = 100,
+    ):
+        self.model = model
+        self.usage = MockEmbeddingUsage(prompt_tokens, total_tokens)
+        self.data = [{"embedding": [0.1, 0.2, 0.3]}]
+
+
+class TestExtractEmbeddingUsage:
+    """Tests for _extract_embedding_usage function."""
+
+    def test_extract_embedding_usage_normal_response(self):
+        """Test extracting usage from a normal embedding response."""
+        response = MockEmbeddingResponse(
+            model="text-embedding-3-small", prompt_tokens=100, total_tokens=100
+        )
+        model, tokens = _extract_embedding_usage(response)
+        assert model == "text-embedding-3-small"
+        assert tokens == 100
+
+    def test_extract_embedding_usage_no_usage(self):
+        """Test extracting usage when usage is None."""
+        response = MockEmbeddingResponse()
+        response.usage = None
+        model, tokens = _extract_embedding_usage(response)
+        assert model == "text-embedding-3-small"
+        assert tokens == 0
+
+    def test_extract_embedding_usage_missing_model(self):
+        """Test extracting usage when model is missing."""
+        response = MagicMock()
+        del response.model
+        response.usage = MockEmbeddingUsage(100, 100)
+        model, tokens = _extract_embedding_usage(response)
+        assert model == "unknown"
+        assert tokens == 100
+
+
+class TestRecordEmbeddingToTracker:
+    """Tests for _record_embedding_to_tracker function."""
+
+    def test_record_embedding_to_tracker_with_tracker(self):
+        """Test recording embedding cost with a tracker."""
+        tracker = CostTracker(print_summary=False)
+        _record_embedding_to_tracker(tracker, "text-embedding-3-small", 1000)
+
+        assert tracker.total_cost > 0
+        assert tracker.embedding_cost > 0
+        assert tracker.completion_cost == 0
+        assert tracker.embedding_count == 1
+        assert tracker.request_count == 1
+
+    def test_record_embedding_to_tracker_no_tracker(self):
+        """Test recording embedding with no tracker does not raise."""
+        # Should not raise
+        _record_embedding_to_tracker(None, "text-embedding-3-small", 1000)
+
+    def test_record_embedding_to_tracker_unknown_model(self):
+        """Test recording with unknown model is skipped."""
+        tracker = CostTracker(print_summary=False)
+        _record_embedding_to_tracker(tracker, "unknown-embedding-xyz", 1000)
+
+        # Should not record unknown model
+        assert tracker.request_count == 0
+
+
+class TestTrackOpenaiEmbeddings:
+    """Tests for track_openai with embeddings."""
+
+    def test_track_openai_embeddings_sync(self):
+        """Test tracking sync embedding requests."""
+        mock_client = MagicMock()
+        mock_client.__class__.__name__ = "OpenAI"
+        mock_client.embeddings.create.return_value = MockEmbeddingResponse()
+
+        tracker = CostTracker(print_summary=False)
+        wrapped = track_openai(mock_client, tracker)
+
+        response = wrapped.embeddings.create(
+            model="text-embedding-3-small", input=["Hello world"]
+        )
+
+        assert response.model == "text-embedding-3-small"
+        assert tracker.total_cost > 0
+        assert tracker.embedding_cost > 0
+        assert tracker.completion_cost == 0
+        assert tracker.embedding_count == 1
+        assert tracker.completion_count == 0
+        assert tracker.request_count == 1
+
+    @pytest.mark.asyncio
+    async def test_track_openai_embeddings_async(self):
+        """Test tracking async embedding requests."""
+        mock_client = MagicMock()
+        mock_client.__class__.__name__ = "AsyncOpenAI"
+        mock_client.embeddings.create = AsyncMock(return_value=MockEmbeddingResponse())
+
+        tracker = CostTracker(print_summary=False)
+        wrapped = track_openai(mock_client, tracker)
+
+        response = await wrapped.embeddings.create(
+            model="text-embedding-3-small", input=["Hello world"]
+        )
+
+        assert response.model == "text-embedding-3-small"
+        assert tracker.total_cost > 0
+        assert tracker.embedding_cost > 0
+        assert tracker.embedding_count == 1
+        assert tracker.request_count == 1
+
+
+class TestMixedEmbeddingAndCompletion:
+    """Tests for mixed embedding and completion tracking."""
+
+    def test_mixed_embedding_and_completion(self):
+        """Test tracking both embeddings and completions."""
+        mock_client = MagicMock()
+        mock_client.__class__.__name__ = "OpenAI"
+        mock_client.chat.completions.create.return_value = MockResponse()
+        mock_client.embeddings.create.return_value = MockEmbeddingResponse()
+
+        tracker = CostTracker(print_summary=False)
+        wrapped = track_openai(mock_client, tracker)
+
+        # Make embedding request
+        wrapped.embeddings.create(model="text-embedding-3-small", input=["Hello"])
+
+        # Make completion request
+        wrapped.chat.completions.create(
+            model="gpt-4o", messages=[{"role": "user", "content": "Hello"}]
+        )
+
+        assert tracker.request_count == 2
+        assert tracker.embedding_count == 1
+        assert tracker.completion_count == 1
+        assert tracker.embedding_cost > 0
+        assert tracker.completion_cost > 0
+        assert tracker.total_cost == tracker.embedding_cost + tracker.completion_cost
+
+
+class TestEmbeddingBudgetIntegration:
+    """Tests for embedding budget integration with OpenAI wrapper."""
+
+    def test_embedding_budget_exceeded_during_tracking(self):
+        """Test that embedding budget is checked during tracking."""
+        from tokencost import EmbeddingBudgetExceededError
+
+        mock_client = MagicMock()
+        mock_client.__class__.__name__ = "OpenAI"
+        # Return a response with high token count
+        mock_client.embeddings.create.return_value = MockEmbeddingResponse(
+            model="text-embedding-3-small", prompt_tokens=10000000, total_tokens=10000000
+        )
+
+        tracker = CostTracker(
+            embedding_budget=0.00001, raise_on_budget=True, print_summary=False
+        )
+        wrapped = track_openai(mock_client, tracker)
+
+        with pytest.raises(EmbeddingBudgetExceededError):
+            wrapped.embeddings.create(model="text-embedding-3-small", input=["Hello"])
+
+    def test_separate_budgets_work_independently(self):
+        """Test that embedding and completion budgets work independently."""
+        mock_client = MagicMock()
+        mock_client.__class__.__name__ = "OpenAI"
+        mock_client.embeddings.create.return_value = MockEmbeddingResponse(
+            prompt_tokens=100, total_tokens=100
+        )
+        mock_client.chat.completions.create.return_value = MockResponse(
+            prompt_tokens=100, completion_tokens=50
+        )
+
+        embedding_callback = MagicMock()
+        completion_callback = MagicMock()
+
+        # 100 tokens of text-embedding-3-small costs ~$0.000002
+        # 100/50 tokens of gpt-4o costs ~$0.00075
+        tracker = CostTracker(
+            embedding_budget=0.000001,  # Very low embedding budget (< $0.000002)
+            completion_budget=10.0,  # High completion budget
+            on_embedding_budget_exceeded=embedding_callback,
+            on_completion_budget_exceeded=completion_callback,
+            print_summary=False,
+        )
+        wrapped = track_openai(mock_client, tracker)
+
+        # Make embedding request - should exceed embedding budget
+        wrapped.embeddings.create(model="text-embedding-3-small", input=["Hello"])
+
+        # Make completion request - should not exceed completion budget
+        wrapped.chat.completions.create(
+            model="gpt-4o", messages=[{"role": "user", "content": "Hello"}]
+        )
+
+        assert tracker.embedding_budget_exceeded is True
+        assert tracker.completion_budget_exceeded is False
+        embedding_callback.assert_called_once()
+        completion_callback.assert_not_called()
