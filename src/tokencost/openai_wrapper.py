@@ -101,9 +101,9 @@ def _extract_embedding_usage(response: Any) -> tuple[str, int]:
         return model, 0
 
     # Embedding usage has prompt_tokens and total_tokens (no completion_tokens)
-    total_tokens = getattr(usage, "total_tokens", 0) or 0
+    total_tokens = getattr(usage, "total_tokens", 0)
     if total_tokens == 0:
-        total_tokens = getattr(usage, "prompt_tokens", 0) or 0
+        total_tokens = getattr(usage, "prompt_tokens", 0)
 
     return model, total_tokens
 
