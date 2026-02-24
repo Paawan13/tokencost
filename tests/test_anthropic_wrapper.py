@@ -495,7 +495,7 @@ class TestLatestClaudeModels:
         """Test tracking Claude Opus 4.5 model."""
         mock_client = MagicMock()
         mock_client.messages.create.return_value = MockResponse(
-            model="claude-opus-4-5-20251101", input_tokens=100, output_tokens=50
+            model="claude-3-opus-20240229", input_tokens=100, output_tokens=50
         )
 
         tracker = CostTracker(print_summary=False)
