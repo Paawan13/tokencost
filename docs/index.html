@@ -1069,14 +1069,14 @@
                     <p class="feature-desc">Set spending limits and get notified via callbacks or exceptions when budgets are exceeded.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon">⚡</div>
-                    <h3 class="feature-title">Async Support</h3>
-                    <p class="feature-desc">Works seamlessly with litellm.acompletion() for async workflows and high-performance applications.</p>
+                    <div class="feature-icon">🔌</div>
+                    <h3 class="feature-title">OpenAI SDK Support</h3>
+                    <p class="feature-desc">Native integration with the OpenAI package. Wrap clients or use global patching for automatic tracking.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon">📊</div>
-                    <h3 class="feature-title">Per-Model Breakdown</h3>
-                    <p class="feature-desc">Get detailed cost aggregation by model to understand which models consume your budget.</p>
+                    <div class="feature-icon">🔍</div>
+                    <h3 class="feature-title">RAG Cost Tracking</h3>
+                    <p class="feature-desc">Separate budgets for embeddings vs completions. Perfect for RAG applications with distinct cost controls.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🔒</div>
@@ -1103,9 +1103,9 @@
 
             <div class="examples-tabs">
                 <button class="tab-btn active" data-tab="basic">Basic Usage</button>
+                <button class="tab-btn" data-tab="openai">OpenAI SDK</button>
+                <button class="tab-btn" data-tab="rag">RAG Tracking</button>
                 <button class="tab-btn" data-tab="budget">Budget Control</button>
-                <button class="tab-btn" data-tab="async">Async Support</button>
-                <button class="tab-btn" data-tab="breakdown">Model Breakdown</button>
             </div>
 
             <div class="code-example active" id="basic">
@@ -1135,6 +1135,77 @@
 <span class="terminal-comment"># Check usage</span>
 <span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Total: $</span><span class="terminal-command">{tracker.total_cost:</span><span class="terminal-number">.4f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
 <span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Requests: </span><span class="terminal-command">{tracker.request_count}</span><span class="terminal-string">"</span><span class="terminal-command">)</span></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="code-example" id="openai">
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-filename">openai_usage.py</span>
+                        <button class="copy-btn" aria-label="Copy code" onclick="copyCode('openai')">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="code-body">
+<pre><span class="terminal-keyword">from</span> <span class="terminal-command">openai</span> <span class="terminal-keyword">import</span> <span class="terminal-function">OpenAI</span>
+<span class="terminal-keyword">from</span> <span class="terminal-command">tokencost</span> <span class="terminal-keyword">import</span> <span class="terminal-function">CostTracker</span><span class="terminal-command">, </span><span class="terminal-function">track_openai</span>
+
+<span class="terminal-comment"># Create tracker and wrap client</span>
+<span class="terminal-command">tracker = </span><span class="terminal-function">CostTracker</span><span class="terminal-command">(budget=</span><span class="terminal-number">1.0</span><span class="terminal-command">)</span>
+<span class="terminal-command">client = </span><span class="terminal-function">track_openai</span><span class="terminal-command">(</span><span class="terminal-function">OpenAI</span><span class="terminal-command">(), tracker)</span>
+
+<span class="terminal-comment"># Use as normal - costs tracked automatically</span>
+<span class="terminal-command">response = client.chat.completions.</span><span class="terminal-function">create</span><span class="terminal-command">(</span>
+    <span class="terminal-command">model=</span><span class="terminal-string">"gpt-4o"</span><span class="terminal-command">,</span>
+    <span class="terminal-command">messages=[{</span><span class="terminal-string">"role"</span><span class="terminal-command">: </span><span class="terminal-string">"user"</span><span class="terminal-command">, </span><span class="terminal-string">"content"</span><span class="terminal-command">: </span><span class="terminal-string">"Hello!"</span><span class="terminal-command">}]</span>
+<span class="terminal-command">)</span>
+
+<span class="terminal-comment"># Embeddings also tracked</span>
+<span class="terminal-command">embeddings = client.embeddings.</span><span class="terminal-function">create</span><span class="terminal-command">(</span>
+    <span class="terminal-command">model=</span><span class="terminal-string">"text-embedding-3-small"</span><span class="terminal-command">,</span>
+    <span class="terminal-command">input=[</span><span class="terminal-string">"Hello world"</span><span class="terminal-command">]</span>
+<span class="terminal-command">)</span>
+
+<span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Total: $</span><span class="terminal-command">{tracker.total_cost:</span><span class="terminal-number">.6f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="code-example" id="rag">
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-filename">rag_tracking.py</span>
+                        <button class="copy-btn" aria-label="Copy code" onclick="copyCode('rag')">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="code-body">
+<pre><span class="terminal-keyword">from</span> <span class="terminal-command">tokencost</span> <span class="terminal-keyword">import</span> <span class="terminal-command">(</span>
+    <span class="terminal-function">CostTracker</span><span class="terminal-command">,</span>
+    <span class="terminal-function">EmbeddingBudgetExceededError</span><span class="terminal-command">,</span>
+    <span class="terminal-function">CompletionBudgetExceededError</span><span class="terminal-command">,</span>
+<span class="terminal-command">)</span>
+
+<span class="terminal-comment"># Separate budgets for embeddings vs completions</span>
+<span class="terminal-command">tracker = </span><span class="terminal-function">CostTracker</span><span class="terminal-command">(</span>
+    <span class="terminal-command">budget=</span><span class="terminal-number">1.00</span><span class="terminal-command">,</span>
+    <span class="terminal-command">embedding_budget=</span><span class="terminal-number">0.10</span><span class="terminal-command">,</span>
+    <span class="terminal-command">completion_budget=</span><span class="terminal-number">0.90</span><span class="terminal-command">,</span>
+    <span class="terminal-command">raise_on_budget=</span><span class="terminal-number">True</span>
+<span class="terminal-command">)</span>
+
+<span class="terminal-comment"># Track costs by type</span>
+<span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Embeddings: $</span><span class="terminal-command">{tracker.embedding_cost:</span><span class="terminal-number">.6f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
+<span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Completions: $</span><span class="terminal-command">{tracker.completion_cost:</span><span class="terminal-number">.6f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
+
+<span class="terminal-comment"># Check budget status</span>
+<span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Embedding budget exceeded: </span><span class="terminal-command">{tracker.embedding_budget_exceeded}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
+<span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Completion budget exceeded: </span><span class="terminal-command">{tracker.completion_budget_exceeded}</span><span class="terminal-string">"</span><span class="terminal-command">)</span></pre>
                     </div>
                 </div>
             </div>
@@ -1174,71 +1245,6 @@
                     </div>
                 </div>
             </div>
-
-            <div class="code-example" id="async">
-                <div class="code-block">
-                    <div class="code-header">
-                        <span class="code-filename">async_usage.py</span>
-                        <button class="copy-btn" aria-label="Copy code" onclick="copyCode('async')">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                        </button>
-                    </div>
-                    <div class="code-body">
-<pre><span class="terminal-keyword">import</span> <span class="terminal-command">asyncio</span>
-<span class="terminal-keyword">import</span> <span class="terminal-command">litellm</span>
-<span class="terminal-keyword">from</span> <span class="terminal-command">tokencost</span> <span class="terminal-keyword">import</span> <span class="terminal-function">CostTracker</span>
-
-<span class="terminal-keyword">async def</span> <span class="terminal-function">main</span><span class="terminal-command">():</span>
-    <span class="terminal-command">tracker = </span><span class="terminal-function">CostTracker</span><span class="terminal-command">()</span>
-    <span class="terminal-command">litellm.callbacks = [tracker]</span>
-
-    <span class="terminal-comment"># Works with async completions</span>
-    <span class="terminal-command">response = </span><span class="terminal-keyword">await</span><span class="terminal-command"> litellm.</span><span class="terminal-function">acompletion</span><span class="terminal-command">(</span>
-        <span class="terminal-command">model=</span><span class="terminal-string">"gpt-4"</span><span class="terminal-command">,</span>
-        <span class="terminal-command">messages=[{</span><span class="terminal-string">"role"</span><span class="terminal-command">: </span><span class="terminal-string">"user"</span><span class="terminal-command">, </span><span class="terminal-string">"content"</span><span class="terminal-command">: </span><span class="terminal-string">"Hello!"</span><span class="terminal-command">}]</span>
-    <span class="terminal-command">)</span>
-
-    <span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"Cost: $</span><span class="terminal-command">{tracker.total_cost:</span><span class="terminal-number">.6f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
-
-<span class="terminal-command">asyncio.</span><span class="terminal-function">run</span><span class="terminal-command">(main())</span></pre>
-                    </div>
-                </div>
-            </div>
-
-            <div class="code-example" id="breakdown">
-                <div class="code-block">
-                    <div class="code-header">
-                        <span class="code-filename">model_breakdown.py</span>
-                        <button class="copy-btn" aria-label="Copy code" onclick="copyCode('breakdown')">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                        </button>
-                    </div>
-                    <div class="code-body">
-<pre><span class="terminal-keyword">import</span> <span class="terminal-command">litellm</span>
-<span class="terminal-keyword">from</span> <span class="terminal-command">tokencost</span> <span class="terminal-keyword">import</span> <span class="terminal-function">CostTracker</span>
-
-<span class="terminal-command">tracker = </span><span class="terminal-function">CostTracker</span><span class="terminal-command">()</span>
-<span class="terminal-command">litellm.callbacks = [tracker]</span>
-
-<span class="terminal-comment"># Make calls to different models</span>
-<span class="terminal-command">litellm.</span><span class="terminal-function">completion</span><span class="terminal-command">(model=</span><span class="terminal-string">"gpt-4"</span><span class="terminal-command">, messages=[...])</span>
-<span class="terminal-command">litellm.</span><span class="terminal-function">completion</span><span class="terminal-command">(model=</span><span class="terminal-string">"gpt-3.5-turbo"</span><span class="terminal-command">, messages=[...])</span>
-<span class="terminal-command">litellm.</span><span class="terminal-function">completion</span><span class="terminal-command">(model=</span><span class="terminal-string">"claude-3-sonnet"</span><span class="terminal-command">, messages=[...])</span>
-
-<span class="terminal-comment"># Get cost breakdown by model</span>
-<span class="terminal-keyword">for</span> <span class="terminal-command">model, cost </span><span class="terminal-keyword">in</span><span class="terminal-command"> tracker.cost_by_model.items():</span>
-    <span class="terminal-keyword">print</span><span class="terminal-command">(</span><span class="terminal-string">f"</span><span class="terminal-command">{model}</span><span class="terminal-string">: $</span><span class="terminal-command">{cost:</span><span class="terminal-number">.6f</span><span class="terminal-command">}</span><span class="terminal-string">"</span><span class="terminal-command">)</span>
-
-<span class="terminal-comment"># Access full history</span>
-<span class="terminal-keyword">for</span> <span class="terminal-command">entry </span><span class="terminal-keyword">in</span><span class="terminal-command"> tracker.history:</span>
-    <span class="terminal-keyword">print</span><span class="terminal-command">(entry)</span></pre>
-                    </div>
-                </div>
-            </div>
         </div>
     </section>
 
@@ -1259,22 +1265,49 @@
                         <li class="api-prop">
                             <span class="api-prop-name">budget</span>
                             <span class="api-prop-type">float | None</span>
-                            <p class="api-prop-desc">Spending limit in USD. None means unlimited.</p>
+                            <p class="api-prop-desc">Total spending limit in USD. None means unlimited.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">embedding_budget / completion_budget</span>
+                            <span class="api-prop-type">float | None</span>
+                            <p class="api-prop-desc">Separate budgets for embedding and completion requests.</p>
                         </li>
                         <li class="api-prop">
                             <span class="api-prop-name">on_budget_exceeded</span>
                             <span class="api-prop-type">Callable | None</span>
-                            <p class="api-prop-desc">Callback function when budget is exceeded. Receives tracker instance.</p>
+                            <p class="api-prop-desc">Callback when total budget exceeded. Receives tracker.</p>
                         </li>
                         <li class="api-prop">
                             <span class="api-prop-name">raise_on_budget</span>
                             <span class="api-prop-type">bool</span>
-                            <p class="api-prop-desc">If True, raises BudgetExceededError when budget exceeded.</p>
+                            <p class="api-prop-desc">If True, raises exception when budget exceeded.</p>
                         </li>
                         <li class="api-prop">
                             <span class="api-prop-name">print_summary</span>
                             <span class="api-prop-type">bool</span>
                             <p class="api-prop-desc">If True, prints cost summary when program exits.</p>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="api-card">
+                    <h3 class="api-card-title">OpenAI Integration</h3>
+                    <p class="api-card-subtitle">Functions for OpenAI SDK</p>
+                    <ul class="api-props">
+                        <li class="api-prop">
+                            <span class="api-prop-name">track_openai(client, tracker)</span>
+                            <span class="api-prop-type">WrappedClient</span>
+                            <p class="api-prop-desc">Wrap an OpenAI or AsyncOpenAI client for automatic tracking.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">patch_openai(tracker=None)</span>
+                            <span class="api-prop-type">None</span>
+                            <p class="api-prop-desc">Globally patch all OpenAI clients for automatic tracking.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">unpatch_openai()</span>
+                            <span class="api-prop-type">None</span>
+                            <p class="api-prop-desc">Remove global OpenAI patches.</p>
                         </li>
                     </ul>
                 </div>
@@ -1289,6 +1322,16 @@
                             <p class="api-prop-desc">Running total cost in USD.</p>
                         </li>
                         <li class="api-prop">
+                            <span class="api-prop-name">embedding_cost</span>
+                            <span class="api-prop-type">float</span>
+                            <p class="api-prop-desc">Total cost of embedding requests in USD.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">completion_cost</span>
+                            <span class="api-prop-type">float</span>
+                            <p class="api-prop-desc">Total cost of completion requests in USD.</p>
+                        </li>
+                        <li class="api-prop">
                             <span class="api-prop-name">request_count</span>
                             <span class="api-prop-type">int</span>
                             <p class="api-prop-desc">Number of successful requests tracked.</p>
@@ -1298,15 +1341,24 @@
                             <span class="api-prop-type">list[dict]</span>
                             <p class="api-prop-desc">All logged requests with model, tokens, cost, timestamp.</p>
                         </li>
+                    </ul>
+                </div>
+
+                <div class="api-card">
+                    <h3 class="api-card-title">Exceptions</h3>
+                    <p class="api-card-subtitle">Budget-related errors</p>
+                    <ul class="api-props">
                         <li class="api-prop">
-                            <span class="api-prop-name">cost_by_model</span>
-                            <span class="api-prop-type">dict[str, float]</span>
-                            <p class="api-prop-desc">Cost aggregated by model name.</p>
+                            <span class="api-prop-name">BudgetExceededError</span>
+                            <p class="api-prop-desc">Raised when total budget is exceeded.</p>
                         </li>
                         <li class="api-prop">
-                            <span class="api-prop-name">budget_exceeded</span>
-                            <span class="api-prop-type">bool</span>
-                            <p class="api-prop-desc">Whether the budget has been exceeded.</p>
+                            <span class="api-prop-name">EmbeddingBudgetExceededError</span>
+                            <p class="api-prop-desc">Raised when embedding budget is exceeded.</p>
+                        </li>
+                        <li class="api-prop">
+                            <span class="api-prop-name">CompletionBudgetExceededError</span>
+                            <p class="api-prop-desc">Raised when completion budget is exceeded.</p>
                         </li>
                     </ul>
                 </div>
@@ -1323,8 +1375,8 @@
                     <p>When your program ends, you get a detailed cost report automatically. No extra code needed.</p>
                     <ul class="summary-features">
                         <li>Total cost and request count</li>
-                        <li>Budget status and remaining funds</li>
-                        <li>Per-request breakdown with token counts</li>
+                        <li>Embedding vs completion breakdown</li>
+                        <li>Per-request details with [C] and [E] labels</li>
                         <li>Disable with print_summary=False</li>
                     </ul>
                 </div>
@@ -1339,16 +1391,21 @@
                         <div class="summary-line header">==================================================</div>
                         <div class="summary-line header">LLM COST SUMMARY</div>
                         <div class="summary-line header">==================================================</div>
-                        <div class="summary-line">Total Cost:     <span class="cost">$0.001959</span></div>
-                        <div class="summary-line">Total Requests: 4</div>
-                        <div class="summary-line">Budget:         $0.0100 (<span class="highlight">OK</span>)</div>
-                        <div class="summary-line">Remaining:      <span class="highlight">$0.008041</span></div>
+                        <div class="summary-line">Total Cost:     <span class="cost">$0.002459</span></div>
+                        <div class="summary-line">Total Requests: 5</div>
+                        <div class="summary-line">Total Budget:   $1.00 (<span class="highlight">OK</span>)</div>
+                        <div class="summary-line">Remaining:      <span class="highlight">$0.997541</span></div>
+                        <div class="summary-line divider">--------------------------------------------------</div>
+                        <div class="summary-line">By Type:</div>
+                        <div class="summary-line">  Embeddings:  1 requests = <span class="cost">$0.000500</span> | Budget: $0.10 (<span class="highlight">OK</span>)</div>
+                        <div class="summary-line">  Completions: 4 requests = <span class="cost">$0.001959</span> | Budget: $0.90 (<span class="highlight">OK</span>)</div>
                         <div class="summary-line divider">--------------------------------------------------</div>
                         <div class="summary-line">Requests:</div>
-                        <div class="summary-line">  1. gpt-4: 7+18 tokens = <span class="cost">$0.000750</span></div>
-                        <div class="summary-line">  2. gpt-4: 13+17 tokens = <span class="cost">$0.000900</span></div>
-                        <div class="summary-line">  3. gpt-3.5-turbo: 8+82 tokens = <span class="cost">$0.000166</span></div>
-                        <div class="summary-line">  4. gpt-3.5-turbo: 10+58 tokens = <span class="cost">$0.000143</span></div>
+                        <div class="summary-line">  1. [C] gpt-4: 7+18 tokens = <span class="cost">$0.000750</span></div>
+                        <div class="summary-line">  2. [C] gpt-4: 13+17 tokens = <span class="cost">$0.000900</span></div>
+                        <div class="summary-line">  3. [E] text-embedding-3-small: 100+0 tokens = <span class="cost">$0.000500</span></div>
+                        <div class="summary-line">  4. [C] gpt-3.5-turbo: 8+82 tokens = <span class="cost">$0.000166</span></div>
+                        <div class="summary-line">  5. [C] gpt-3.5-turbo: 10+58 tokens = <span class="cost">$0.000143</span></div>
                         <div class="summary-line header">==================================================</div>
                     </div>
                 </div>
@@ -1366,7 +1423,7 @@
                     <li><a href="https://pypi.org/project/llm-tokencost/" target="_blank" rel="noopener noreferrer">PyPI</a></li>
                     <li><a href="https://github.com/Paawan13/llm-tokencost/issues" target="_blank" rel="noopener noreferrer">Issues</a></li>
                 </ul>
-                <div class="footer-copy">MIT License &copy; 2024</div>
+                <div class="footer-copy">MIT License &copy; 2026</div>
             </div>
         </div>
     </footer>
