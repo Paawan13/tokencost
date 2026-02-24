@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-tokencost"
-version = "0.4.0"
-description = "A lightweight Python library for tracking LLM API costs via litellm's callback system"
+version = "0.6.0"
+description = "A lightweight Python library for tracking OpenAI and Anthropic SDK costs with budget alerts"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -30,11 +30,17 @@ dependencies = [
 
 [project.optional-dependencies]
 openai = ["openai>=1.26.0"]
+anthropic = ["anthropic>=0.18.0"]
+all = [
+    "openai>=1.26.0",
+    "anthropic>=0.18.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "pytest-asyncio>=0.21.0",
     "openai>=1.26.0",
+    "anthropic>=0.18.0",
 ]
 
 [project.urls]
