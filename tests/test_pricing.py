@@ -2,7 +2,13 @@
 
 import pytest
 
-from tokencost.pricing import calculate_cost, get_model_pricing, list_models
+from tokencost.pricing import (
+    calculate_cost,
+    calculate_embedding_cost,
+    get_model_pricing,
+    is_embedding_model,
+    list_models,
+)
 
 
 class TestCalculateCost:
@@ -114,3 +120,73 @@ class TestListModels:
         models = list_models()
         for model in models:
             assert isinstance(model, str)
+
+
+class TestIsEmbeddingModel:
+    """Tests for is_embedding_model function."""
+
+    def test_is_embedding_model_openai_embeddings(self):
+        """Test OpenAI embedding models are detected."""
+        assert is_embedding_model("text-embedding-3-small") is True
+        assert is_embedding_model("text-embedding-3-large") is True
+        assert is_embedding_model("text-embedding-ada-002") is True
+
+    def test_is_embedding_model_not_embedding(self):
+        """Test that completion models are not detected as embedding."""
+        assert is_embedding_model("gpt-4o") is False
+        assert is_embedding_model("gpt-3.5-turbo") is False
+        assert is_embedding_model("claude-3-opus-20240229") is False
+
+    def test_is_embedding_model_case_insensitive(self):
+        """Test that detection is case insensitive."""
+        assert is_embedding_model("TEXT-EMBEDDING-3-SMALL") is True
+        assert is_embedding_model("Text-Embedding-3-Large") is True
+
+    def test_is_embedding_model_voyage_pattern(self):
+        """Test Voyage embedding models are detected."""
+        assert is_embedding_model("voyage-2") is True
+        assert is_embedding_model("voyage-large-2") is True
+
+
+class TestCalculateEmbeddingCost:
+    """Tests for calculate_embedding_cost function."""
+
+    def test_calculate_embedding_cost_basic(self):
+        """Test basic embedding cost calculation."""
+        cost = calculate_embedding_cost("text-embedding-3-small", input_tokens=1000)
+        assert cost > 0
+        assert isinstance(cost, float)
+
+    def test_calculate_embedding_cost_zero_tokens(self):
+        """Test embedding cost with zero tokens."""
+        cost = calculate_embedding_cost("text-embedding-3-small", input_tokens=0)
+        assert cost == 0.0
+
+    def test_calculate_embedding_cost_unknown_model(self):
+        """Test that unknown model raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown model"):
+            calculate_embedding_cost("unknown-embedding-model", input_tokens=1000)
+
+    def test_calculate_embedding_cost_relative_pricing(self):
+        """Test that small embedding model is cheaper than large."""
+        small_cost = calculate_embedding_cost(
+            "text-embedding-3-small", input_tokens=1000
+        )
+        large_cost = calculate_embedding_cost(
+            "text-embedding-3-large", input_tokens=1000
+        )
+
+        # Large should be more expensive than small
+        assert large_cost > small_cost
+
+    def test_calculate_embedding_cost_much_cheaper_than_completion(self):
+        """Test that embedding is much cheaper than completion."""
+        embedding_cost = calculate_embedding_cost(
+            "text-embedding-3-small", input_tokens=1000
+        )
+        completion_cost = calculate_cost(
+            "gpt-4o", prompt_tokens=1000, completion_tokens=0
+        )
+
+        # Embedding should be significantly cheaper
+        assert embedding_cost < completion_cost
