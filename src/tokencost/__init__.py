@@ -6,6 +6,7 @@ from .exceptions import (
     CompletionBudgetExceededError,
     EmbeddingBudgetExceededError,
 )
+from .gemini_wrapper import patch_gemini, track_gemini, unpatch_gemini
 from .openai_wrapper import patch_openai, track_openai, unpatch_openai
 from .pricing import (
     calculate_cost,
@@ -28,9 +29,12 @@ __all__ = [
     "is_embedding_model",
     "list_models",
     "patch_anthropic",
+    "patch_gemini",
     "patch_openai",
     "track_anthropic",
+    "track_gemini",
     "track_openai",
     "unpatch_anthropic",
+    "unpatch_gemini",
     "unpatch_openai",
 ]
