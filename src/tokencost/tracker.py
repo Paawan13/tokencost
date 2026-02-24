@@ -361,14 +361,7 @@ class CostTracker(CustomLogger):
         actions: list[tuple[str, float, float]] = []
 
         with self._lock:
-            # Check total budget
-            if self._budget is not None and self._total_cost > self._budget:
-                self._budget_exceeded = True
-                if not self._callback_fired:
-                    self._callback_fired = True
-                    actions.append(("total", self._budget, self._total_cost))
-
-            # Check embedding budget
+            # Check embedding budget first (more specific)
             if (
                 self._embedding_budget is not None
                 and self._embedding_cost > self._embedding_budget
@@ -380,7 +373,7 @@ class CostTracker(CustomLogger):
                         ("embedding", self._embedding_budget, self._embedding_cost)
                     )
 
-            # Check completion budget
+            # Check completion budget (more specific)
             if (
                 self._completion_budget is not None
                 and self._completion_cost > self._completion_budget
@@ -391,6 +384,13 @@ class CostTracker(CustomLogger):
                     actions.append(
                         ("completion", self._completion_budget, self._completion_cost)
                     )
+
+            # Check total budget last (most general)
+            if self._budget is not None and self._total_cost > self._budget:
+                self._budget_exceeded = True
+                if not self._callback_fired:
+                    self._callback_fired = True
+                    actions.append(("total", self._budget, self._total_cost))
 
         # Execute callbacks outside the lock to prevent deadlocks
         exception_to_raise = None
