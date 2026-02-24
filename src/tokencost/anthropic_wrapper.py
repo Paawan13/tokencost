@@ -214,11 +214,10 @@ class _WrappedMessages:
     """Wrapper for client.messages that tracks costs."""
 
     def __init__(
-        self, original_messages: Any, tracker: "CostTracker | None", is_async: bool = False
+        self, original_messages: Any, tracker: "CostTracker | None"
     ) -> None:
         self._original = original_messages
         self._tracker = tracker
-        self._is_async = is_async
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._original, name)
@@ -262,7 +261,7 @@ class _WrappedClient:
     def messages(self) -> Any:
         if self._is_async:
             return _WrappedAsyncMessages(self._client.messages, self._tracker)
-        return _WrappedMessages(self._client.messages, self._tracker, self._is_async)
+        return _WrappedMessages(self._client.messages, self._tracker)
 
 
 def track_anthropic(client: Any, tracker: "CostTracker | None" = None) -> Any:
