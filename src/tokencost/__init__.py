@@ -1,5 +1,6 @@
 """LLM Cost Tracker - Track LLM API costs via litellm's callback system."""
 
+from .anthropic_wrapper import patch_anthropic, track_anthropic, unpatch_anthropic
 from .exceptions import (
     BudgetExceededError,
     CompletionBudgetExceededError,
@@ -15,7 +16,7 @@ from .pricing import (
 )
 from .tracker import CostTracker
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __all__ = [
     "BudgetExceededError",
     "calculate_cost",
@@ -26,7 +27,10 @@ __all__ = [
     "get_model_pricing",
     "is_embedding_model",
     "list_models",
+    "patch_anthropic",
     "patch_openai",
+    "track_anthropic",
     "track_openai",
+    "unpatch_anthropic",
     "unpatch_openai",
 ]

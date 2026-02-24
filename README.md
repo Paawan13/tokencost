@@ -1,6 +1,6 @@
 # tokencost
 
-A lightweight Python library for tracking LLM API costs via litellm's callback system, with budget alerts and spending limits.
+A lightweight Python library for tracking LLM API costs with budget alerts and spending limits. Works directly with **OpenAI** and **Anthropic** SDKs.
 
 ## Installation
 
@@ -8,39 +8,20 @@ A lightweight Python library for tracking LLM API costs via litellm's callback s
 pip install llm-tokencost
 ```
 
-## Quick Start
+With provider SDKs:
 
-### With litellm
+```bash
+# For OpenAI SDK integration
+pip install llm-tokencost[openai]
 
-```python
-import litellm
-from tokencost import CostTracker, BudgetExceededError
+# For Anthropic SDK integration
+pip install llm-tokencost[anthropic]
 
-# Create a tracker with a $5 budget
-def alert(tracker):
-    print(f"Budget exceeded! Spent ${tracker.total_cost:.2f}")
-
-tracker = CostTracker(
-    budget=5.00,
-    on_budget_exceeded=alert,
-    raise_on_budget=True
-)
-
-# Register with litellm
-litellm.callbacks = [tracker]
-
-# Make LLM calls as usual
-try:
-    response = litellm.completion(
-        model="gpt-4",
-        messages=[{"role": "user", "content": "Hello!"}]
-    )
-except BudgetExceededError as e:
-    print(f"Stopped at ${e.total_cost:.2f} (budget: ${e.budget:.2f})")
-
-# Check usage
-print(f"Total: ${tracker.total_cost:.4f} across {tracker.request_count} requests")
+# For all providers
+pip install llm-tokencost[all]
 ```
+
+## Quick Start
 
 ### With OpenAI SDK
 
@@ -60,17 +41,66 @@ response = client.chat.completions.create(
 print(f"Cost: ${tracker.total_cost:.6f}")
 ```
 
+### With Anthropic SDK
+
+```python
+from anthropic import Anthropic
+from tokencost import CostTracker, track_anthropic
+
+tracker = CostTracker(budget=1.0)
+client = track_anthropic(Anthropic(), tracker)
+
+# Use the client as normal - costs are tracked automatically
+response = client.messages.create(
+    model="claude-opus-4-6",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+
+print(f"Cost: ${tracker.total_cost:.6f}")
+```
+
+### With Budget Alerts
+
+```python
+from openai import OpenAI
+from tokencost import CostTracker, BudgetExceededError, track_openai
+
+def alert(tracker):
+    print(f"Budget exceeded! Spent ${tracker.total_cost:.2f}")
+
+tracker = CostTracker(
+    budget=5.00,
+    on_budget_exceeded=alert,
+    raise_on_budget=True
+)
+
+client = track_openai(OpenAI(), tracker)
+
+try:
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "Hello!"}]
+    )
+except BudgetExceededError as e:
+    print(f"Stopped at ${e.total_cost:.2f} (budget: ${e.budget:.2f})")
+
+print(f"Total: ${tracker.total_cost:.4f} across {tracker.request_count} requests")
+```
+
 ## Features
 
-- **Real-time cost tracking** during LLM calls
+- **Real-time cost tracking** during LLM API calls
 - **Budget alerts** via callback and/or exception
-- **Async support** for `litellm.acompletion()` and `AsyncOpenAI`
+- **OpenAI SDK support** — track `chat.completions` and `embeddings`
+- **Anthropic SDK support** — track `messages` API
+- **Async support** — works with `AsyncOpenAI` and `AsyncAnthropic`
+- **Streaming support** — costs tracked after stream completes
 - **Per-model cost aggregation** via `cost_by_model` property
 - **RAG cost tracking** — separate budgets for embeddings vs completions
-- **OpenAI SDK support** — native integration with `openai` package
 - **Automatic exit summary** — prints cost report when program ends
 - **Thread-safe** for concurrent usage
-- **Uses litellm's pricing data** for accurate costs (1600+ models)
+- **Accurate pricing** for 1600+ models via litellm's pricing database
 
 ## OpenAI SDK Integration
 
@@ -147,6 +177,80 @@ for chunk in stream:
 print(f"\nCost: ${tracker.total_cost:.6f}")
 ```
 
+## Anthropic SDK Integration
+
+### Wrapping a Client
+
+Use `track_anthropic()` to wrap an Anthropic client instance:
+
+```python
+from anthropic import Anthropic, AsyncAnthropic
+from tokencost import CostTracker, track_anthropic
+
+tracker = CostTracker(budget=1.0)
+
+# Wrap sync client
+client = track_anthropic(Anthropic(), tracker)
+
+# Or wrap async client
+async_client = track_anthropic(AsyncAnthropic(), tracker)
+
+# Messages are tracked automatically
+response = client.messages.create(
+    model="claude-3-5-sonnet-20241022",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+
+print(f"Cost: ${tracker.total_cost:.6f}")
+```
+
+### Global Patching
+
+Use `patch_anthropic()` to automatically track all Anthropic client instances:
+
+```python
+from anthropic import Anthropic
+from tokencost import CostTracker, patch_anthropic, unpatch_anthropic
+
+tracker = CostTracker()
+patch_anthropic(tracker)
+
+# All clients now track costs automatically
+client = Anthropic()
+response = client.messages.create(
+    model="claude-3-5-sonnet-20241022",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+
+print(f"Cost: ${tracker.total_cost:.6f}")
+
+# Remove patches when done
+unpatch_anthropic()
+```
+
+### Streaming Support
+
+Streaming responses are fully supported:
+
+```python
+client = track_anthropic(Anthropic(), tracker)
+
+with client.messages.stream(
+    model="claude-3-5-sonnet-20241022",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}]
+) as stream:
+    for text in stream.text_stream:
+        print(text, end="")
+
+# Cost is tracked after stream completes
+print(f"\nCost: ${tracker.total_cost:.6f}")
+```
+
+> **Note:** Anthropic does not provide embedding models. For embeddings, use OpenAI, Voyage AI, or other embedding providers.
+
 ## RAG Cost Tracking
 
 For RAG applications, you can set separate budgets for embeddings and completions:
@@ -186,16 +290,25 @@ print(f"Completion budget exceeded: {tracker.completion_budget_exceeded}")
 
 ```python
 import asyncio
-import litellm
-from tokencost import CostTracker
+from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
+from tokencost import CostTracker, track_openai, track_anthropic
 
 async def main():
     tracker = CostTracker()
-    litellm.callbacks = [tracker]
 
-    # Works with async completions
-    response = await litellm.acompletion(
-        model="gpt-4",
+    # Async OpenAI
+    openai_client = track_openai(AsyncOpenAI(), tracker)
+    response = await openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "Hello!"}]
+    )
+
+    # Async Anthropic
+    anthropic_client = track_anthropic(AsyncAnthropic(), tracker)
+    response = await anthropic_client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=1024,
         messages=[{"role": "user", "content": "Hello!"}]
     )
 
@@ -207,13 +320,19 @@ asyncio.run(main())
 ## Per-Model Cost Breakdown
 
 ```python
+from openai import OpenAI
+from anthropic import Anthropic
+from tokencost import CostTracker, track_openai, track_anthropic
+
 tracker = CostTracker()
-litellm.callbacks = [tracker]
+
+openai_client = track_openai(OpenAI(), tracker)
+anthropic_client = track_anthropic(Anthropic(), tracker)
 
 # Make calls to different models...
-litellm.completion(model="gpt-4", messages=[...])
-litellm.completion(model="gpt-3.5-turbo", messages=[...])
-litellm.completion(model="claude-3-sonnet", messages=[...])
+openai_client.chat.completions.create(model="gpt-4o", messages=[...])
+openai_client.chat.completions.create(model="gpt-4o-mini", messages=[...])
+anthropic_client.messages.create(model="claude-opus-4-6", max_tokens=1024, messages=[...])
 
 # Get cost breakdown by model
 for model, cost in tracker.cost_by_model.items():
@@ -268,6 +387,17 @@ track_openai(client, tracker) -> WrappedClient
 # Global patching
 patch_openai(tracker)   # Patch all OpenAI clients
 unpatch_openai()        # Remove patches
+```
+
+### Anthropic Integration
+
+```python
+# Wrap a client instance
+track_anthropic(client, tracker) -> WrappedClient
+
+# Global patching
+patch_anthropic(tracker)   # Patch all Anthropic clients
+unpatch_anthropic()        # Remove patches
 ```
 
 ### Exceptions
