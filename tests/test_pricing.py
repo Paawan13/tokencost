@@ -13,6 +13,19 @@ from tokencost.pricing import (
     list_models,
 )
 
+# All expected Moonshot/Kimi models for parametrized tests
+EXPECTED_MOONSHOT_MODELS = [
+    "moonshot/kimi-k2.5",
+    "moonshot/kimi-k2-0905-preview",
+    "moonshot/kimi-k2-0711-preview",
+    "moonshot/kimi-k2-turbo-preview",
+    "moonshot/kimi-k2-thinking",
+    "moonshot/kimi-k2-thinking-turbo",
+    "moonshot/moonshot-v1-8k",
+    "moonshot/moonshot-v1-32k",
+    "moonshot/moonshot-v1-128k",
+]
+
 
 class TestCalculateCost:
     """Tests for calculate_cost function."""
@@ -256,19 +269,19 @@ class TestMoonshotCalculateCost:
         """Test cost calculation for kimi-k2.5."""
         # 1M input tokens should cost $0.60
         cost = calculate_cost("kimi-k2.5", prompt_tokens=1_000_000, completion_tokens=0)
-        assert abs(cost - 0.60) < 0.0001
+        assert cost == pytest.approx(0.60)
 
         # 1M output tokens should cost $3.00
         cost = calculate_cost("kimi-k2.5", prompt_tokens=0, completion_tokens=1_000_000)
-        assert abs(cost - 3.00) < 0.0001
+        assert cost == pytest.approx(3.00)
 
     def test_calculate_cost_kimi_k2_preview(self):
         """Test cost calculation for kimi-k2-0905-preview."""
         cost = calculate_cost("kimi-k2-0905-preview", prompt_tokens=1_000_000, completion_tokens=0)
-        assert abs(cost - 0.60) < 0.0001
+        assert cost == pytest.approx(0.60)
 
         cost = calculate_cost("kimi-k2-0905-preview", prompt_tokens=0, completion_tokens=1_000_000)
-        assert abs(cost - 2.50) < 0.0001
+        assert cost == pytest.approx(2.50)
 
     def test_calculate_cost_kimi_turbo_more_expensive(self):
         """Test that turbo models cost more than standard."""
@@ -324,25 +337,7 @@ class TestMoonshotGetModelPricing:
 class TestMoonshotPricingCompleteness:
     """Tests to verify all expected models are in pricing dict."""
 
-    def test_all_kimi_k2_models_present(self):
-        """Test that all Kimi K2 models are in pricing."""
-        expected_models = [
-            "moonshot/kimi-k2.5",
-            "moonshot/kimi-k2-0905-preview",
-            "moonshot/kimi-k2-0711-preview",
-            "moonshot/kimi-k2-turbo-preview",
-            "moonshot/kimi-k2-thinking",
-            "moonshot/kimi-k2-thinking-turbo",
-        ]
-        for model in expected_models:
-            assert model in MOONSHOT_PRICING, f"Missing model: {model}"
-
-    def test_all_moonshot_v1_models_present(self):
-        """Test that all Moonshot V1 models are in pricing."""
-        expected_models = [
-            "moonshot/moonshot-v1-8k",
-            "moonshot/moonshot-v1-32k",
-            "moonshot/moonshot-v1-128k",
-        ]
-        for model in expected_models:
-            assert model in MOONSHOT_PRICING, f"Missing model: {model}"
+    @pytest.mark.parametrize("model_name", EXPECTED_MOONSHOT_MODELS)
+    def test_model_is_present_in_pricing_dict(self, model_name: str):
+        """Test that an expected model is in the pricing dict."""
+        assert model_name in MOONSHOT_PRICING, f"Missing model: {model_name}"
