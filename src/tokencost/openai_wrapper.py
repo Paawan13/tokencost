@@ -4,7 +4,11 @@ import functools
 import threading
 from typing import TYPE_CHECKING, Any, Callable
 
-from .pricing import calculate_cost, calculate_embedding_cost
+from .pricing import (
+    _normalize_moonshot_model,
+    calculate_cost,
+    calculate_embedding_cost,
+)
 
 if TYPE_CHECKING:
     from .tracker import CostTracker
@@ -76,8 +80,11 @@ def _record_to_tracker(
     if tracker is None:
         return
 
+    # Normalize model name for pricing lookup (e.g., Moonshot/Kimi models)
+    normalized_model = _normalize_moonshot_model(model)
+
     try:
-        cost = calculate_cost(model, prompt_tokens, completion_tokens)
+        cost = calculate_cost(normalized_model, prompt_tokens, completion_tokens)
     except ValueError:
         # Unknown model, skip recording
         return
