@@ -3,12 +3,28 @@
 import pytest
 
 from tokencost.pricing import (
+    MOONSHOT_PRICING,
+    _get_moonshot_pricing,
+    _normalize_moonshot_model,
     calculate_cost,
     calculate_embedding_cost,
     get_model_pricing,
     is_embedding_model,
     list_models,
 )
+
+# All expected Moonshot/Kimi models for parametrized tests
+EXPECTED_MOONSHOT_MODELS = [
+    "moonshot/kimi-k2.5",
+    "moonshot/kimi-k2-0905-preview",
+    "moonshot/kimi-k2-0711-preview",
+    "moonshot/kimi-k2-turbo-preview",
+    "moonshot/kimi-k2-thinking",
+    "moonshot/kimi-k2-thinking-turbo",
+    "moonshot/moonshot-v1-8k",
+    "moonshot/moonshot-v1-32k",
+    "moonshot/moonshot-v1-128k",
+]
 
 
 class TestCalculateCost:
@@ -190,3 +206,138 @@ class TestCalculateEmbeddingCost:
 
         # Embedding should be significantly cheaper
         assert embedding_cost < completion_cost
+
+
+class TestMoonshotNormalization:
+    """Tests for Moonshot/Kimi model name normalization."""
+
+    def test_normalize_kimi_model(self):
+        """Test normalizing kimi- prefixed models."""
+        assert _normalize_moonshot_model("kimi-k2.5") == "moonshot/kimi-k2.5"
+        assert _normalize_moonshot_model("kimi-k2-0905-preview") == "moonshot/kimi-k2-0905-preview"
+        assert _normalize_moonshot_model("kimi-k2-thinking") == "moonshot/kimi-k2-thinking"
+
+    def test_normalize_moonshot_model(self):
+        """Test normalizing moonshot- prefixed models."""
+        assert _normalize_moonshot_model("moonshot-v1-8k") == "moonshot/moonshot-v1-8k"
+        assert _normalize_moonshot_model("moonshot-v1-128k") == "moonshot/moonshot-v1-128k"
+
+    def test_normalize_already_prefixed(self):
+        """Test that already prefixed models are unchanged."""
+        assert _normalize_moonshot_model("moonshot/kimi-k2.5") == "moonshot/kimi-k2.5"
+        assert _normalize_moonshot_model("moonshot/moonshot-v1-8k") == "moonshot/moonshot-v1-8k"
+
+    def test_normalize_non_moonshot(self):
+        """Test that non-Moonshot models are unchanged."""
+        assert _normalize_moonshot_model("gpt-4o") == "gpt-4o"
+        assert _normalize_moonshot_model("claude-3-opus") == "claude-3-opus"
+
+
+class TestMoonshotPricingLookup:
+    """Tests for Moonshot pricing dictionary lookup."""
+
+    def test_get_moonshot_pricing_kimi_k2(self):
+        """Test getting pricing for Kimi K2 models."""
+        pricing = _get_moonshot_pricing("kimi-k2.5")
+        assert pricing is not None
+        assert pricing["input"] == 0.60e-6
+        assert pricing["output"] == 3.00e-6
+
+    def test_get_moonshot_pricing_with_prefix(self):
+        """Test getting pricing with moonshot/ prefix."""
+        pricing = _get_moonshot_pricing("moonshot/kimi-k2.5")
+        assert pricing is not None
+        assert pricing["input"] == 0.60e-6
+
+    def test_get_moonshot_pricing_legacy_model(self):
+        """Test getting pricing for legacy moonshot-v1 models."""
+        pricing = _get_moonshot_pricing("moonshot-v1-8k")
+        assert pricing is not None
+        assert pricing["input"] == 0.20e-6
+        assert pricing["output"] == 2.00e-6
+
+    def test_get_moonshot_pricing_unknown(self):
+        """Test that unknown models return None."""
+        assert _get_moonshot_pricing("gpt-4o") is None
+        assert _get_moonshot_pricing("unknown-model") is None
+
+
+class TestMoonshotCalculateCost:
+    """Tests for calculate_cost with Moonshot/Kimi models."""
+
+    def test_calculate_cost_kimi_k25(self):
+        """Test cost calculation for kimi-k2.5."""
+        # 1M input tokens should cost $0.60
+        cost = calculate_cost("kimi-k2.5", prompt_tokens=1_000_000, completion_tokens=0)
+        assert cost == pytest.approx(0.60)
+
+        # 1M output tokens should cost $3.00
+        cost = calculate_cost("kimi-k2.5", prompt_tokens=0, completion_tokens=1_000_000)
+        assert cost == pytest.approx(3.00)
+
+    def test_calculate_cost_kimi_k2_preview(self):
+        """Test cost calculation for kimi-k2-0905-preview."""
+        cost = calculate_cost("kimi-k2-0905-preview", prompt_tokens=1_000_000, completion_tokens=0)
+        assert cost == pytest.approx(0.60)
+
+        cost = calculate_cost("kimi-k2-0905-preview", prompt_tokens=0, completion_tokens=1_000_000)
+        assert cost == pytest.approx(2.50)
+
+    def test_calculate_cost_kimi_turbo_more_expensive(self):
+        """Test that turbo models cost more than standard."""
+        standard_cost = calculate_cost(
+            "kimi-k2-0905-preview", prompt_tokens=1000, completion_tokens=500
+        )
+        turbo_cost = calculate_cost(
+            "kimi-k2-turbo-preview", prompt_tokens=1000, completion_tokens=500
+        )
+        assert turbo_cost > standard_cost
+
+    def test_calculate_cost_moonshot_v1_tiers(self):
+        """Test moonshot-v1 context tier pricing."""
+        # 8k should be cheapest
+        cost_8k = calculate_cost("moonshot-v1-8k", prompt_tokens=1000, completion_tokens=500)
+        cost_32k = calculate_cost("moonshot-v1-32k", prompt_tokens=1000, completion_tokens=500)
+        cost_128k = calculate_cost("moonshot-v1-128k", prompt_tokens=1000, completion_tokens=500)
+
+        assert cost_8k < cost_32k < cost_128k
+
+    def test_calculate_cost_with_prefix(self):
+        """Test cost calculation with moonshot/ prefix."""
+        cost1 = calculate_cost("kimi-k2.5", prompt_tokens=1000, completion_tokens=500)
+        cost2 = calculate_cost("moonshot/kimi-k2.5", prompt_tokens=1000, completion_tokens=500)
+        assert cost1 == cost2
+
+    def test_calculate_cost_zero_tokens(self):
+        """Test zero token cost calculation."""
+        cost = calculate_cost("kimi-k2.5", prompt_tokens=0, completion_tokens=0)
+        assert cost == 0.0
+
+
+class TestMoonshotGetModelPricing:
+    """Tests for get_model_pricing with Moonshot/Kimi models."""
+
+    def test_get_model_pricing_kimi(self):
+        """Test getting pricing info for Kimi models."""
+        pricing = get_model_pricing("kimi-k2.5")
+        assert "input_cost_per_token" in pricing
+        assert "output_cost_per_token" in pricing
+        assert "max_tokens" in pricing
+        assert pricing["max_tokens"] == 262144
+
+    def test_get_model_pricing_moonshot_legacy(self):
+        """Test getting pricing info for legacy moonshot models."""
+        pricing = get_model_pricing("moonshot-v1-8k")
+        assert pricing["max_tokens"] == 8192
+
+        pricing = get_model_pricing("moonshot-v1-128k")
+        assert pricing["max_tokens"] == 131072
+
+
+class TestMoonshotPricingCompleteness:
+    """Tests to verify all expected models are in pricing dict."""
+
+    @pytest.mark.parametrize("model_name", EXPECTED_MOONSHOT_MODELS)
+    def test_model_is_present_in_pricing_dict(self, model_name: str):
+        """Test that an expected model is in the pricing dict."""
+        assert model_name in MOONSHOT_PRICING, f"Missing model: {model_name}"
