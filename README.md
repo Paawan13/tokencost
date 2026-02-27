@@ -1,6 +1,22 @@
 # tokencost
 
-A lightweight Python library for tracking LLM API costs with budget alerts and spending limits. Works directly with **OpenAI** and **Anthropic** SDKs.
+A lightweight Python library for tracking LLM API costs with budget alerts and spending limits.
+
+**Works with:** OpenAI | Anthropic | Google Gemini | LiteLLM (1600+ models)
+
+**Use cases:** RAG applications | Multi-model pipelines | Cost monitoring | Budget enforcement
+
+## Features
+
+- **Multi-provider support** — OpenAI, Anthropic, Google Gemini SDKs
+- **1600+ model pricing** — via LiteLLM's comprehensive pricing database
+- **RAG cost tracking** — separate budgets for embeddings vs completions
+- **Budget alerts** — callbacks and/or exceptions when limits exceeded
+- **Real-time tracking** — costs calculated as requests complete
+- **Streaming support** — works with streaming responses
+- **Async support** — works with async clients
+- **Thread-safe** — safe for concurrent usage
+- **Exit summary** — automatic cost report when program ends
 
 ## Installation
 
@@ -16,6 +32,9 @@ pip install llm-tokencost[openai]
 
 # For Anthropic SDK integration
 pip install llm-tokencost[anthropic]
+
+# For Google Gemini SDK integration
+pip install llm-tokencost[gemini]
 
 # For all providers
 pip install llm-tokencost[all]
@@ -60,6 +79,24 @@ response = client.messages.create(
 print(f"Cost: ${tracker.total_cost:.6f}")
 ```
 
+### With Google Gemini SDK
+
+```python
+from google import genai
+from tokencost import CostTracker, track_gemini
+
+tracker = CostTracker(budget=1.0)
+client = track_gemini(genai.Client(), tracker)
+
+# Use the client as normal - costs are tracked automatically
+response = client.models.generate_content(
+    model="gemini-2.0-flash",
+    contents="Hello!"
+)
+
+print(f"Cost: ${tracker.total_cost:.6f}")
+```
+
 ### With Budget Alerts
 
 ```python
@@ -87,20 +124,6 @@ except BudgetExceededError as e:
 
 print(f"Total: ${tracker.total_cost:.4f} across {tracker.request_count} requests")
 ```
-
-## Features
-
-- **Real-time cost tracking** during LLM API calls
-- **Budget alerts** via callback and/or exception
-- **OpenAI SDK support** — track `chat.completions` and `embeddings`
-- **Anthropic SDK support** — track `messages` API
-- **Async support** — works with `AsyncOpenAI` and `AsyncAnthropic`
-- **Streaming support** — costs tracked after stream completes
-- **Per-model cost aggregation** via `cost_by_model` property
-- **RAG cost tracking** — separate budgets for embeddings vs completions
-- **Automatic exit summary** — prints cost report when program ends
-- **Thread-safe** for concurrent usage
-- **Accurate pricing** for 1600+ models via litellm's pricing database
 
 ## OpenAI SDK Integration
 
@@ -251,9 +274,111 @@ print(f"\nCost: ${tracker.total_cost:.6f}")
 
 > **Note:** Anthropic does not provide embedding models. For embeddings, use OpenAI, Voyage AI, or other embedding providers.
 
+## Google Gemini SDK Integration
+
+### Wrapping a Client
+
+Use `track_gemini()` to wrap a Gemini client instance:
+
+```python
+from google import genai
+from tokencost import CostTracker, track_gemini
+
+tracker = CostTracker(budget=1.0)
+
+# Wrap sync client
+client = track_gemini(genai.Client(), tracker)
+
+# Content generation is tracked automatically
+response = client.models.generate_content(
+    model="gemini-2.0-flash",
+    contents="Explain quantum computing in simple terms."
+)
+
+print(f"Cost: ${tracker.total_cost:.6f}")
+```
+
+### Global Patching
+
+Use `patch_gemini()` to automatically track all Gemini client instances:
+
+```python
+from google import genai
+from tokencost import CostTracker, patch_gemini, unpatch_gemini
+
+tracker = CostTracker()
+patch_gemini(tracker)
+
+# All clients now track costs automatically
+client = genai.Client()
+response = client.models.generate_content(
+    model="gemini-2.0-flash",
+    contents="Hello!"
+)
+
+print(f"Cost: ${tracker.total_cost:.6f}")
+
+# Remove patches when done
+unpatch_gemini()
+```
+
+### Streaming Support
+
+Streaming responses are fully supported:
+
+```python
+client = track_gemini(genai.Client(), tracker)
+
+for chunk in client.models.generate_content_stream(
+    model="gemini-2.0-flash",
+    contents="Write a short story."
+):
+    print(chunk.text, end="")
+
+# Cost is tracked after stream completes
+print(f"\nCost: ${tracker.total_cost:.6f}")
+```
+
 ## RAG Cost Tracking
 
-For RAG applications, you can set separate budgets for embeddings and completions:
+For RAG (Retrieval-Augmented Generation) applications, you can set separate budgets for embeddings and completions. This is useful when you want to control costs for document indexing vs. query answering separately.
+
+### Basic RAG Setup
+
+```python
+from openai import OpenAI
+from tokencost import CostTracker, track_openai
+
+tracker = CostTracker(
+    budget=1.00,              # Total budget
+    embedding_budget=0.10,    # Limit embedding costs (indexing)
+    completion_budget=0.90,   # Limit completion costs (queries)
+    raise_on_budget=True
+)
+
+client = track_openai(OpenAI(), tracker)
+
+# Index documents (embedding costs)
+embeddings = client.embeddings.create(
+    model="text-embedding-3-small",
+    input=["Document 1 content", "Document 2 content"]
+)
+
+# Answer queries (completion costs)
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {"role": "system", "content": "Answer based on retrieved context."},
+        {"role": "user", "content": "What is in document 1?"}
+    ]
+)
+
+# Track costs by type
+print(f"Embedding cost: ${tracker.embedding_cost:.6f} ({tracker.embedding_count} requests)")
+print(f"Completion cost: ${tracker.completion_cost:.6f} ({tracker.completion_count} requests)")
+```
+
+### With Separate Callbacks
 
 ```python
 from tokencost import (
@@ -262,28 +387,56 @@ from tokencost import (
     CompletionBudgetExceededError,
 )
 
-tracker = CostTracker(
-    budget=1.00,              # Total budget
-    embedding_budget=0.10,    # Limit embedding costs
-    completion_budget=0.90,   # Limit completion costs
-    raise_on_budget=True
-)
+def on_embedding_exceeded(tracker):
+    print(f"Warning: Embedding budget exceeded! Spent ${tracker.embedding_cost:.4f}")
 
-# With separate callbacks
+def on_completion_exceeded(tracker):
+    print(f"Warning: Completion budget exceeded! Spent ${tracker.completion_cost:.4f}")
+
 tracker = CostTracker(
     embedding_budget=0.10,
     completion_budget=0.50,
-    on_embedding_budget_exceeded=lambda t: print("Embedding budget exceeded!"),
-    on_completion_budget_exceeded=lambda t: print("Completion budget exceeded!"),
+    on_embedding_budget_exceeded=on_embedding_exceeded,
+    on_completion_budget_exceeded=on_completion_exceeded,
 )
-
-# Track costs by type
-print(f"Embedding cost: ${tracker.embedding_cost:.6f} ({tracker.embedding_count} requests)")
-print(f"Completion cost: ${tracker.completion_cost:.6f} ({tracker.completion_count} requests)")
 
 # Check budget status
 print(f"Embedding budget exceeded: {tracker.embedding_budget_exceeded}")
 print(f"Completion budget exceeded: {tracker.completion_budget_exceeded}")
+```
+
+### Multi-Provider RAG Pipeline
+
+Track costs across different providers in a single pipeline:
+
+```python
+from openai import OpenAI
+from anthropic import Anthropic
+from tokencost import CostTracker, track_openai, track_anthropic
+
+tracker = CostTracker(budget=5.00)
+
+openai_client = track_openai(OpenAI(), tracker)
+anthropic_client = track_anthropic(Anthropic(), tracker)
+
+# Use OpenAI for embeddings
+embeddings = openai_client.embeddings.create(
+    model="text-embedding-3-small",
+    input=["Document content to index"]
+)
+
+# Use Claude for generation
+response = anthropic_client.messages.create(
+    model="claude-3-5-sonnet-20241022",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Summarize the retrieved documents."}]
+)
+
+# Get cost breakdown by model
+for model, cost in tracker.cost_by_model.items():
+    print(f"{model}: ${cost:.6f}")
+
+print(f"Total: ${tracker.total_cost:.6f}")
 ```
 
 ## Async Support
@@ -400,6 +553,17 @@ patch_anthropic(tracker)   # Patch all Anthropic clients
 unpatch_anthropic()        # Remove patches
 ```
 
+### Gemini Integration
+
+```python
+# Wrap a client instance
+track_gemini(client, tracker) -> WrappedClient
+
+# Global patching
+patch_gemini(tracker)   # Patch all Gemini clients
+unpatch_gemini()        # Remove patches
+```
+
 ### Exceptions
 
 ```python
@@ -440,6 +604,37 @@ is_embedding_model("text-embedding-3-small")  # True
 
 # List all supported models
 models = list_models()
+```
+
+## Supported Models
+
+This library uses [LiteLLM's pricing database](https://github.com/BerriAI/litellm) to support **1600+ models** across providers:
+
+| Provider | Models |
+|----------|--------|
+| OpenAI | GPT-4o, GPT-4, GPT-3.5-turbo, text-embedding-3-small/large, etc. |
+| Anthropic | Claude 3.5, Claude 3 (Opus, Sonnet, Haiku), etc. |
+| Google | Gemini 2.0, Gemini 1.5, PaLM, etc. |
+| Azure | All Azure OpenAI deployments |
+| AWS Bedrock | Claude, Titan, Llama, Mistral, etc. |
+| Cohere | Command, Embed models |
+| Mistral | Mistral Large, Medium, Small |
+| Together AI | Llama, Mixtral, etc. |
+| Groq | Llama, Mixtral |
+| Perplexity | pplx-* models |
+| And many more... | Replicate, Anyscale, DeepInfra, etc. |
+
+```python
+from tokencost import list_models, get_model_pricing
+
+# List all 1600+ supported models
+all_models = list_models()
+print(f"Supported models: {len(all_models)}")
+
+# Check pricing for any model
+pricing = get_model_pricing("gpt-4o")
+print(f"Input: ${pricing['input_cost_per_token'] * 1_000_000:.2f}/M tokens")
+print(f"Output: ${pricing['output_cost_per_token'] * 1_000_000:.2f}/M tokens")
 ```
 
 ## Exit Summary
