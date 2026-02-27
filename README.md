@@ -427,7 +427,7 @@ embeddings = openai_client.embeddings.create(
 
 # Use Claude for generation
 response = anthropic_client.messages.create(
-    model="claude-3-5-sonnet-20241022",
+    model="claude-3-5-sonnet-20240620",
     max_tokens=1024,
     messages=[{"role": "user", "content": "Summarize the retrieved documents."}]
 )
